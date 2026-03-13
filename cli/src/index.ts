@@ -3,6 +3,19 @@
 import { Command } from "commander";
 import { writeDefaultConfig, loadConfig, SssStandard } from "./config";
 import { deployStablecoinFromConfig } from "./stablecoin/deploy";
+import {
+  runMint,
+  runBurn,
+  runFreeze,
+  runThaw,
+  runPause,
+  runUnpause,
+  runStatus,
+  runSupply,
+  runBalance,
+  runSetAuthority,
+  runAuditLog,
+} from "./stablecoin/operations";
 
 const program = new Command();
 
@@ -13,16 +26,11 @@ program
 
 const init = program
   .command("init")
-  .description(
-    "Deploy or configure an SSS-compliant stablecoin from a TOML configuration",
-  );
+  .description("Create a config from a preset or deploy a new mint from an existing config");
 
 init
   .option("--preset <name>", "Generate a starter config (sss-1 or sss-2)")
-  .option(
-    "--custom <path>",
-    "Deploy a new stablecoin from an existing config.toml",
-  )
+  .option("--custom <path>", "Deploy a new stablecoin from an existing config.toml")
   .action(async (opts: { preset?: string; custom?: string }) => {
     if (opts.custom) {
       try {
@@ -42,81 +50,177 @@ init
       return;
     }
 
-    const path = writeDefaultConfig(preset);
-    console.log(`Created config at ${path} for preset ${preset}.`);
+    const outPath = writeDefaultConfig(preset);
+    console.log(`Created config at ${outPath} for preset ${preset}.`);
   });
 
 program
   .command("mint")
-  .description("[SSS-1] Mint new stablecoins to a recipient")
-  .argument("<recipient>", "Recipient wallet address")
-  .argument("<amount>", "Amount to mint (in base units or decimals TBD)")
+  .description("Mint tokens to a recipient (creates ATA if needed)")
+  .argument("<recipient>", "Recipient wallet address (base58)")
+  .argument("<amount>", "Amount in raw units (e.g. 1000000 for 1 token with 6 decimals)")
   .option("--config <path>", "Path to config TOML")
-  .action(
-    async (
-      recipient: string,
-      amountStr: string,
-      opts: { config?: string },
-    ) => {
+  .action(async (recipient: string, amountStr: string, opts: { config?: string }) => {
+    try {
       const cfg = loadConfig(opts.config);
-      if (cfg.standard !== "sss-1") {
-        console.error(
-          `This command currently only supports SSS-1 configs. Found: ${cfg.standard}`,
-        );
-        process.exitCode = 1;
-        return;
-      }
-
       const amount = BigInt(amountStr);
-      console.log(
-        `[DRY RUN] Would mint ${amount.toString()} units to ${recipient} using mint ${cfg.stablecoin.mint} on ${cfg.cluster}`,
-      );
-    },
-  );
+      await runMint(cfg, recipient, amount);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
 
 program
   .command("burn")
-  .description("[SSS-1] Burn stablecoins from the authority's account")
-  .argument("<amount>", "Amount to burn")
+  .description("Burn tokens from the mint authority's token account")
+  .argument("<amount>", "Amount in raw units to burn")
   .option("--config <path>", "Path to config TOML")
   .action(async (amountStr: string, opts: { config?: string }) => {
-    const cfg = loadConfig(opts.config);
-    if (cfg.standard !== "sss-1") {
-      console.error(
-        `This command currently only supports SSS-1 configs. Found: ${cfg.standard}`,
-      );
+    try {
+      const cfg = loadConfig(opts.config);
+      await runBurn(cfg, BigInt(amountStr));
+    } catch (err) {
+      console.error((err as Error).message);
       process.exitCode = 1;
-      return;
     }
+  });
 
-    const amount = BigInt(amountStr);
-    console.log(
-      `[DRY RUN] Would burn ${amount.toString()} units from authority for mint ${cfg.stablecoin.mint} on ${cfg.cluster}`,
-    );
+program
+  .command("freeze")
+  .description("Freeze a token account (requires freeze authority)")
+  .argument("<address>", "Token account address to freeze")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (address: string, opts: { config?: string }) => {
+    try {
+      const cfg = loadConfig(opts.config);
+      await runFreeze(cfg, address);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("thaw")
+  .description("Thaw a frozen token account")
+  .argument("<address>", "Token account address to thaw")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (address: string, opts: { config?: string }) => {
+    try {
+      const cfg = loadConfig(opts.config);
+      await runThaw(cfg, address);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("pause")
+  .description("Pause mint/transfer/burn (Token-2022 Pausable extension)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (opts: { config?: string }) => {
+    try {
+      const cfg = loadConfig(opts.config);
+      await runPause(cfg);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("unpause")
+  .description("Resume mint/transfer/burn after pause")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (opts: { config?: string }) => {
+    try {
+      const cfg = loadConfig(opts.config);
+      await runUnpause(cfg);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
   });
 
 program
   .command("status")
-  .description("[SSS-1] Show token status / supply snapshot")
+  .description("Show token config and on-chain status (supply, authorities)")
   .option("--config <path>", "Path to config TOML")
   .action(async (opts: { config?: string }) => {
-    const cfg = loadConfig(opts.config);
-    if (cfg.standard !== "sss-1") {
-      console.error(
-        `This command currently only supports SSS-1 configs. Found: ${cfg.standard}`,
-      );
+    try {
+      const cfg = loadConfig(opts.config);
+      await runStatus(cfg);
+    } catch (err) {
+      console.error((err as Error).message);
       process.exitCode = 1;
-      return;
     }
+  });
 
-    console.log("Standard:", cfg.standard);
-    console.log("Cluster:", cfg.cluster);
-    console.log("Mint:", cfg.stablecoin.mint || "(not set)");
-    console.log("Authorities: mint:", cfg.authorities.mint, "freeze:", cfg.authorities.freeze, "metadata:", cfg.authorities.metadata);
+program
+  .command("supply")
+  .description("Print total supply (raw and UI)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (opts: { config?: string }) => {
+    try {
+      const cfg = loadConfig(opts.config);
+      await runSupply(cfg);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("balance")
+  .description("Show balance of a wallet for the configured mint")
+  .argument("<address>", "Wallet address (base58)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (address: string, opts: { config?: string }) => {
+    try {
+      const cfg = loadConfig(opts.config);
+      await runBalance(cfg, address);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("set-authority")
+  .description("Update an authority (mint, freeze, metadata, pause, permanent-delegate)")
+  .argument("<type>", "Authority type: mint | freeze | metadata | pause | permanent-delegate")
+  .argument("<new-authority>", "New authority public key (base58), or 'none' to remove")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (type: string, newAuthority: string, opts: { config?: string }) => {
+    try {
+      const cfg = loadConfig(opts.config);
+      await runSetAuthority(cfg, type, newAuthority);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("audit-log")
+  .description("Show recent transactions involving the configured mint (basic audit log)")
+  .option("--limit <n>", "Number of signatures to fetch (default 20)")
+  .option("--action <type>", "Planned filter by action type (not yet decoded)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (opts: { limit?: string; action?: string; config?: string }) => {
+    try {
+      const cfg = loadConfig(opts.config);
+      const limit = opts.limit ? Math.max(1, Math.min(1000, Number(opts.limit))) : 20;
+      await runAuditLog(cfg, limit, opts.action);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
   });
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));
   process.exitCode = 1;
 });
-

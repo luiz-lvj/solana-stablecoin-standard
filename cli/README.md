@@ -1,24 +1,37 @@
-## `sss-token` CLI
+# `sss-token` CLI
 
-CLI for working with Solana Stablecoin Standard tokens.  
-Right now it focuses on **SSS‑1** and is wired for local config + dry‑run commands; on‑chain integration will be added next.
+A command-line tool for **stablecoin managers** on Solana. Use it to deploy and operate SPL tokens that follow the [Solana Stablecoin Standard](https://superteam.fun/earn/listing/build-the-solana-stablecoin-standard-bounty) (SSS), with support for Token-2022 and extensions (metadata, freeze, pause, etc.).
 
-### Install & build
+---
 
-From the `cli/` folder:
+## Table of contents
+
+- [Install & build](#install--build)
+- [Two ways to use the CLI](#two-ways-to-use-the-cli)
+- [Tutorial: Deploy a new stablecoin (SSS-1)](#tutorial-deploy-a-new-stablecoin-sss-1)
+- [Tutorial: Manage an existing stablecoin](#tutorial-manage-an-existing-stablecoin)
+- [Configuration reference](#configuration-reference)
+- [Commands reference](#commands-reference)
+- [Updating authorities](#updating-authorities)
+
+---
+
+## Install & build
+
+From the `cli/` directory:
 
 ```bash
 npm install
 npm run build
 ```
 
-You can then run the CLI with:
+Run the CLI:
 
 ```bash
 npx sss-token --help
 ```
 
-During development you can skip the build step and run:
+For development (no build step):
 
 ```bash
 npm run dev -- <command> [options]
@@ -30,125 +43,315 @@ Example:
 npm run dev -- init --preset sss-1
 ```
 
-You can also inspect a full example config at:
+---
 
-- `example.config.toml`
+## Two ways to use the CLI
 
-### Config model
+1. **You don’t have a stablecoin yet**  
+   Create a config (or use a preset), then deploy a new Token-2022 mint with the CLI. The config’s `mint` field is left empty and is filled after deployment.
 
-The CLI is config‑driven. It expects a TOML file describing:
+2. **You already have a stablecoin**  
+   Point the CLI at your existing mint by setting `[stablecoin] mint = "<your-mint-address>"` in the config. Use the same config to run operations (mint, burn, freeze, status, etc.).
 
-- **standard**: `"sss-1"` or `"sss-2"` (which Stablecoin Standard profile you target)
-- **cluster**: `"devnet"`, `"testnet"`, `"mainnet-beta"`, or custom RPC label
-- **rpcUrl**: optional custom RPC endpoint
+All commands are **config-driven**: by default the CLI looks for `sss-token.config.toml` in the current directory. Override with `--config <path>` when needed.
 
-Plus nested sections:
+---
 
-- **`[stablecoin]`**:
-  - `name`: human name, e.g. `"My Stablecoin"`
-  - `symbol`: ticker, e.g. `"MUSD"`
-  - `decimals`: number of decimals, e.g. `6`
-  - `tokenProgram`: `"spl-token-2022"` (recommended for Token Extensions) or `"spl-token"`
-  - `mint`: the mint address of the SPL token – **blank before deploy**, filled after on‑chain deployment
-- **`[authorities]`**:
-  - `mint`: keypair path for the mint authority
-  - `freeze`: keypair path for the freeze authority
-  - `metadata`: keypair path for the metadata authority
-  - `permanentDelegate` (optional): keypair path for the permanent delegate authority
-  - `pause` (optional): keypair path for the pause authority (Pausable extension)
-- **`[extensions.*]`**: which Token‑2022 extensions to enable:
-  - `[extensions.metadata]`: `{ enabled = true }` – required for SSS‑1
-  - `[extensions.pausable]`: `{ enabled = true/false }`
-  - `[extensions.permanentDelegate]`: `{ enabled = true/false }`
-  - `[extensions.transferHook]`: `{ enabled = true/false, programId = "<hook_program_id>" }`
+## Tutorial: Deploy a new stablecoin (SSS-1)
 
-By default the CLI looks for `sss-token.config.toml` in the current working directory.  
-You can override this with `--config <path>` on relevant commands.
+This walkthrough creates a new Token-2022 mint with metadata (name, symbol, URI) on devnet.
 
-If you want to see **all** available options in one place, open `example.config.toml`.
+### Step 1: Create a config from a preset
 
-### `init` – configure or deploy
+Generate a starter config for the SSS-1 profile:
 
-Configure a new stablecoin (via a preset) or deploy from an existing config.
+```bash
+sss-token init --preset sss-1
+```
+
+This creates `sss-token.config.toml` in the current directory with:
+
+- `standard = "sss-1"`
+- `cluster = "devnet"`
+- `[stablecoin]` with name/symbol/decimals and `tokenProgram = "spl-token-2022"`
+- `mint = ""` (to be filled after deploy)
+- `[authorities]` paths for mint, freeze, and metadata (default: `~/.config/solana/id.json`)
+- `[extensions.metadata] enabled = true`
+
+### Step 2: Edit the config (optional)
+
+Open `sss-token.config.toml` and adjust:
+
+- **`[stablecoin]`**  
+  - `name`, `symbol`, `decimals`  
+  - `uri` (optional; for metadata, e.g. a JSON or info URL)
+- **`[authorities]`**  
+  - Paths to keypair JSON files for mint, freeze, and metadata.  
+  - The **mint authority** keypair is used as the transaction payer and mint signer.  
+  - Ensure these files exist and correspond to wallets with devnet SOL if you use devnet.
+
+For a full list of options, see `example.config.toml`.
+
+### Step 3: Deploy the mint
+
+Run:
+
+```bash
+sss-token init --custom config.toml
+```
+
+(You can use `config.toml` or `sss-token.config.toml`; if you created the file in step 1, `sss-token init --custom sss-token.config.toml` is equivalent.)
+
+The CLI will:
+
+1. Create a new Token-2022 mint account (with MetadataPointer extension).
+2. Initialize the base mint (decimals, mint authority, freeze authority).
+3. Call `tokenMetadataInitialize` to add name, symbol, and URI on-chain.
+4. Write the new mint address into the config’s `[stablecoin] mint` field.
+
+Example output:
+
+```
+=== SSS deploy ===
+Standard: sss-1
+Cluster: devnet
+Token program: spl-token-2022
+Name / symbol / decimals: MyUSD MUSD 6
+Metadata extension: enabled (on-mint name, symbol, uri)
+
+Created mint: 7NDkaMubatXw8fHQ2zNU4eid8Nkh5vG9SxQMSzUyE9SM
+Updated config with mint address: /path/to/sss-token.config.toml
+Deployment complete.
+```
+
+After this, the same config file is ready for all management commands (mint, burn, freeze, status, etc.).
+
+---
+
+## Tutorial: Manage an existing stablecoin
+
+If the stablecoin is already deployed, you only need a config that points at it.
+
+1. **Create or copy a config** (e.g. from `example.config.toml`).
+2. Set **`[stablecoin] mint = "<your-mint-address>"`**.
+3. Set **`[authorities]`** to the keypair paths that hold:
+   - **mint** authority (for minting, and often as payer)
+   - **freeze** authority (for freeze/thaw)
+   - **metadata** authority (for metadata updates; Token-2022 MetadataPointer)
+4. Set **`cluster`** and optionally **`rpcUrl`** to match the mint’s network.
+
+No need to run `init --custom` again; use the operations below.
+
+---
+
+## Configuration reference
+
+The CLI expects a TOML file with the following structure.
+
+### Top-level
+
+| Field      | Description |
+|-----------|-------------|
+| `standard` | `"sss-1"` or `"sss-2"` (SSS profile). |
+| `cluster`  | `"devnet"`, `"testnet"`, `"mainnet-beta"`, or a custom label. |
+| `rpcUrl`   | Optional. Overrides the default RPC for the cluster. |
+
+### `[stablecoin]`
+
+| Field           | Description |
+|----------------|-------------|
+| `name`         | Human-readable token name. |
+| `symbol`       | Ticker symbol. |
+| `decimals`     | Number of decimals (e.g. `6`). |
+| `tokenProgram` | `"spl-token-2022"` (recommended) or `"spl-token"`. |
+| `uri`          | Optional. URI for Token-2022 metadata (e.g. JSON URL). |
+| `mint`         | Mint address. Empty before deploy; filled by `sss-token init --custom`. |
+
+### `[authorities]`
+
+Paths to keypair JSON files (Solana keypair format). `~` is expanded.
+
+| Field                | Description |
+|----------------------|-------------|
+| `mint`               | Mint authority (required for minting). |
+| `freeze`             | Freeze authority (required for freeze/thaw). |
+| `metadata`           | Metadata (MetadataPointer) update authority. |
+| `permanentDelegate`  | Optional. Permanent delegate authority. |
+| `pause`              | Optional. Pause authority (Pausable extension). |
+
+### `[extensions.*]`
+
+Which Token-2022 extensions are enabled (used at deploy time for new mints).
+
+- **`[extensions.metadata]`** – `enabled = true/false`. SSS-1 uses on-mint metadata.
+- **`[extensions.pausable]`** – `enabled = true/false`.
+- **`[extensions.permanentDelegate]`** – `enabled = true/false`.
+- **`[extensions.transferHook]`** – `enabled = true/false`, `programId = "<id>"`.
+
+See `example.config.toml` for a full sample.
+
+---
+
+## Commands reference
+
+### `init` – Create config or deploy mint
 
 ```bash
 sss-token init --preset sss-1
 sss-token init --preset sss-2
-sss-token init --custom path/to/config.toml
+sss-token init --custom <path-to-config.toml>
 ```
 
-- **`--preset sss-1`**: writes a starter `sss-token.config.toml` in the current directory, with:
-  - `standard = "sss-1"`
-  - `cluster = "devnet"`
-  - `[stablecoin]` name/symbol/decimals, `tokenProgram = "spl-token-2022"`, `mint = ""`
-  - `[authorities]` for `mint`, `freeze`, `metadata` all pointing to `~/.config/solana/id.json`
-  - `[extensions.metadata].enabled = true`, other extensions disabled
-- **`--preset sss-2`**: same structure but with `standard = "sss-2"` (future profile with additional extensions).
-- **`--custom`**: loads an existing TOML file and runs a **deployment dry‑run**:
-  - validates the config shape and authorities
-  - prints a summary of which extensions and authorities will be used
-  - in future iterations, this will:
-    - create the mint using the chosen token program,
-    - initialize the requested extensions, and
-    - write the resulting `stablecoin.mint` back into the TOML file.
+- **`--preset sss-1`** / **`--preset sss-2`**  
+  Writes a new `sss-token.config.toml` (or current directory default) with that preset. Does not deploy.
+- **`--custom <path>`**  
+  Deploys a new mint from the given config. Requires `mint = ""`. Writes the new mint address back into the config.
 
-### `mint` – SSS‑1 minting
+---
 
-Mint new stablecoins to a given recipient address.
+### `mint` – Mint tokens to a recipient
 
 ```bash
 sss-token mint <recipient> <amount> [--config <path>]
 ```
 
-- **`<recipient>`**: base58 Solana address to receive tokens.
-- **`<amount>`**: amount to mint, parsed as an integer (`BigInt`) in base units.
-- **`--config`**: optional path to a config file (defaults to `sss-token.config.toml`).
+- **`<recipient>`** – Solana wallet address (base58). The CLI creates the associated token account (ATA) for the mint if it does not exist.
+- **`<amount>`** – Amount in **raw units** (smallest decimals). For 6 decimals, `1000000` = 1 token.
 
-Current behavior:
+Uses the mint authority from config and the token program (Token-2022 or legacy) from `[stablecoin]`.
 
-- Loads the config and enforces `standard === "sss-1"`.
-- Logs a **dry‑run** message describing what would be minted (recipient, amount, mint, cluster).
-- Does **not** yet send a transaction; this is where SSS‑1 on‑chain logic will be wired in.
+---
 
-### `burn` – SSS‑1 burn
-
-Burn tokens from the authority’s account.
+### `burn` – Burn tokens
 
 ```bash
 sss-token burn <amount> [--config <path>]
 ```
 
-- **`<amount>`**: amount to burn, parsed as `BigInt` in base units.
-- **`--config`**: optional path to a config file (defaults to `sss-token.config.toml`).
+Burns `<amount>` (raw units) from the **mint authority’s** token account for this mint. That account must exist and hold at least `<amount>`.
 
-Current behavior:
+---
 
-- Loads the config and enforces `standard === "sss-1"`.
-- Logs a **dry‑run** message describing what would be burned from the authority.
+### `freeze` / `thaw` – Freeze or unfreeze a token account
 
-### `status` – snapshot of the token
+```bash
+sss-token freeze <address> [--config <path>]
+sss-token thaw <address> [--config <path>]
+```
 
-Show a quick snapshot of the token configuration.
+- **`<address>`** – The **token account** (not the wallet) to freeze or thaw. Use the ATA or any token account for this mint.
+
+Requires the freeze authority from config.
+
+---
+
+### `pause` / `unpause` – Pause or resume mint activity (Token-2022 Pausable)
+
+```bash
+sss-token pause [--config <path>]
+sss-token unpause [--config <path>]
+```
+
+Only apply to mints that use the Token-2022 **Pausable** extension. Requires the pause authority (e.g. `[authorities] pause` in config).
+
+---
+
+### `status` – Token and supply snapshot
 
 ```bash
 sss-token status [--config <path>]
 ```
 
-Outputs:
+Prints config (standard, cluster, mint) and on-chain info: supply, decimals, and current mint/freeze authorities.
 
-- Standard (currently must be `sss-1`).
-- Cluster.
-- Mint address (or placeholder if not set).
-- Authority keypair path.
-- A note that on‑chain queries (supply, authorities) are not yet implemented.
+---
 
-### Roadmap (to be implemented)
+### `supply` – Total supply only
 
-The CLI is intentionally structured so additional SSS operations can be slotted in:
+```bash
+sss-token supply [--config <path>]
+```
 
-- **Freeze / thaw / pause / unpause** for SSS‑1.
-- **SSS‑2** features like blacklist, seize, audit log, etc.
-- A shared SDK layer so the CLI becomes a thin wrapper around reusable TypeScript APIs.
+Prints the current total supply (raw and human-readable) for the configured mint.
 
-As new commands are added, this README should be kept in sync: each new command should get a short description, usage snippet, and any config implications.
+---
 
+### `balance` – Balance of an address
+
+```bash
+sss-token balance <address> [--config <path>]
+```
+
+- **`<address>`** – Wallet address (base58). The CLI resolves the **associated token account** for the configured mint and prints its balance (raw and human-readable). If the ATA does not exist, the balance is 0.
+
+---
+
+### `set-authority` – Update an authority (mint, freeze, metadata, pause, etc.)
+
+Stablecoins can have multiple authorities (mint, freeze, metadata pointer, pause, etc.). Use this command to change who controls them.
+
+```bash
+sss-token set-authority <type> <new-authority> [--config <path>]
+```
+
+- **`<type>`** – One of: `mint`, `freeze`, `metadata`, `pause`, `permanent-delegate`, etc., depending on the mint’s extensions.
+- **`<new-authority>`** – New authority public key (base58), or `none` to remove the authority (where the program allows it).
+
+The **current** authority is taken from config: the keypair for the corresponding authority (e.g. `authorities.mint` for `mint`, `authorities.metadata` for `metadata`). That keypair must sign the transaction.
+
+Examples:
+
+```bash
+# Set a new mint authority
+sss-token set-authority mint 9abc...xyz
+
+# Set a new metadata (MetadataPointer) authority
+sss-token set-authority metadata GuU4YH1v6DdkbZwh5Qi7prDxEupGFTtUaTU7EpzRHbQU
+
+# Remove freeze authority (if the program allows)
+sss-token set-authority freeze none
+```
+
+Not all authority types exist on every mint; the CLI maps `<type>` to the correct Token-2022 `AuthorityType` (e.g. `MetadataPointer`, `PausableConfig`). If the mint does not have that extension, the transaction will fail on-chain.
+
+---
+
+### `audit-log` – Recent transactions for the mint
+
+```bash
+sss-token audit-log [--limit <n>] [--config <path>] [--action <type>]
+```
+
+- **`--limit <n>`** – How many recent signatures to fetch (default `20`, max `1000`).
+- **`--action <type>`** – Reserved for future filtering (e.g. `mint`, `burn`, `freeze`). For now it is informational only; the command prints all recent transactions involving the mint.
+
+The command calls `getSignaturesForAddress` on the mint and prints, for each transaction:
+
+- Signature
+- Slot
+- Error status
+- Block time (if available)
+
+This gives you a quick, chain-level audit trail to feed into more detailed analysis or an external explorer.
+
+---
+
+## Updating authorities
+
+After deployment, you can change who can mint, freeze, update metadata, or pause:
+
+1. Ensure the **current** authority keypair for that type is in your config (e.g. `authorities.metadata` for the metadata pointer).
+2. Run:
+   ```bash
+   sss-token set-authority <type> <new-pubkey>
+   ```
+3. To use the new authority for future CLI commands, update your config (e.g. point `authorities.metadata` to the new keypair path). The on-chain mint already has the new authority; the config only tells the CLI which keypair to use when signing.
+
+---
+
+## Roadmap
+
+- **SSS-2**-specific features (e.g. blacklist, seize, audit log) when the standard is defined.
+- Optional **SDK** layer so the same logic can be used from scripts or other apps.
+
+As new commands or options are added, this README will be kept in sync.
