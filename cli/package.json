@@ -9,19 +9,26 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "ts-node src/index.ts",
+    "test": "ts-mocha -p ./tsconfig.test.json -t 120000 'tests/**/*.test.ts'",
     "lint": "eslint \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
-    "@solana/web3.js": "^1.95.0",
     "@solana/spl-token": "^0.4.0",
+    "@solana/web3.js": "^1.95.0",
     "commander": "^12.0.0",
     "toml": "^3.0.0"
   },
   "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/jest": "^30.0.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
+    "chai": "^4.3.0",
+    "eslint": "^9.0.0",
+    "mocha": "^10.0.0",
+    "ts-mocha": "^10.0.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.0",
-    "eslint": "^9.0.0"
+    "typescript": "^5.6.0"
   },
   "engines": {
     "node": ">=20"
