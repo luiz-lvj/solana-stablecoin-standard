@@ -1,60 +1,162 @@
-import { loadConfig, SssConfig } from "../config";
+import path from "path";
+import { Keypair, SystemProgram, Transaction } from "@solana/web3.js";
+import {
+  loadConfig,
+  updateConfigMint,
+  defaultConfigPath,
+  type SssConfig,
+} from "../config";
+import { getConnection, loadKeypair } from "../solana-helpers";
+import {
+  createMint,
+  createInitializeMint2Instruction,
+  createInitializeMetadataPointerInstruction,
+  tokenMetadataInitialize,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  ExtensionType,
+  getMintLen,
+} from "@solana/spl-token";
+import { sendAndConfirmTransaction } from "@solana/web3.js";
+
+/** Default assumed mint size after metadata realloc (name/symbol/uri + padding). */
+const ASSUMED_FINAL_MINT_SIZE = 4096;
 
 /**
- * High-level deploy helper.
+ * Deploys a new SPL mint from config: creates the mint on-chain (with optional
+ * Token-2022 Metadata extension), then updates the config file with the new mint address.
  *
- * In the "no stablecoin yet" flow, the user provides a config.toml describing:
- * - which standard to target (sss-1 / sss-2),
- * - which authorities should control which capabilities,
- * - which Token-2022 extensions should be enabled.
- *
- * This function will eventually:
- * - create the mint account using the appropriate token program,
- * - initialize all requested extensions,
- * - write the resulting mint address back into the config file.
- *
- * For now, it only validates and prints a dry-run summary.
+ * Token-2022 with metadata follows the working pattern:
+ * - Allocate only for MetadataPointer; fund with enough lamports for final size.
+ * - Tx1: CreateAccount → MetadataPointer → InitializeMint2.
+ * - Tx2: tokenMetadataInitialize (reallocs mint and writes name/symbol/uri).
  */
 export async function deployStablecoinFromConfig(
   configPath?: string,
 ): Promise<SssConfig> {
   const cfg = loadConfig(configPath);
+  const filePath = configPath
+    ? path.resolve(process.cwd(), configPath)
+    : defaultConfigPath();
 
-  // TODO: wire in @solana/web3.js + token-2022 helper library calls.
-  // For now, just surface a structured summary so we can iterate on the config shape.
-  console.log("=== SSS deploy dry run ===");
+  if (cfg.stablecoin.mint && cfg.stablecoin.mint.trim() !== "") {
+    throw new Error(
+      "Config already has a mint address. Use a config with mint = \"\" to deploy a new token.",
+    );
+  }
+
+  const connection = getConnection(cfg);
+  const payer = loadKeypair(cfg.authorities.mint);
+  const mintAuthority = payer.publicKey;
+  const freezeKeypair = loadKeypair(cfg.authorities.freeze);
+  const freezeAuthority = freezeKeypair.publicKey;
+  const decimals = cfg.stablecoin.decimals;
+  const name = cfg.stablecoin.name;
+  const symbol = cfg.stablecoin.symbol;
+  const uri = cfg.stablecoin.uri ?? "";
+
+  const useToken2022 = cfg.stablecoin.tokenProgram === "spl-token-2022";
+  const metadataEnabled =
+    useToken2022 && (cfg.extensions?.metadata?.enabled === true);
+
+  const programId = useToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+
+  console.log("=== SSS deploy ===");
   console.log("Standard:", cfg.standard);
   console.log("Cluster:", cfg.cluster);
   console.log("Token program:", cfg.stablecoin.tokenProgram);
-  console.log("Name / symbol / decimals:", cfg.stablecoin.name, cfg.stablecoin.symbol, cfg.stablecoin.decimals);
-  console.log("Mint (will be assigned on-chain):", cfg.stablecoin.mint || "(empty)");
-  console.log("");
-  console.log("Authorities:");
-  console.log("  mint:", cfg.authorities.mint);
-  console.log("  freeze:", cfg.authorities.freeze);
-  console.log("  metadata:", cfg.authorities.metadata);
-  if (cfg.authorities.permanentDelegate) {
-    console.log("  permanentDelegate:", cfg.authorities.permanentDelegate);
-  }
-  if (cfg.authorities.pause) {
-    console.log("  pause:", cfg.authorities.pause);
+  console.log(
+    "Name / symbol / decimals:",
+    name,
+    symbol,
+    decimals,
+  );
+  if (metadataEnabled) {
+    console.log("Metadata extension: enabled (on-mint name, symbol, uri)");
   }
   console.log("");
-  console.log("Extensions:");
-  const ex = cfg.extensions || {};
-  console.log("  metadata:", ex.metadata?.enabled ?? false);
-  console.log("  pausable:", ex.pausable?.enabled ?? false);
-  console.log("  permanentDelegate:", ex.permanentDelegate?.enabled ?? false);
-  console.log(
-    "  transferHook:",
-    ex.transferHook?.enabled ?? false,
-    ex.transferHook?.enabled ? `programId=${ex.transferHook.programId}` : "",
-  );
-  console.log("");
-  console.log(
-    "[TODO] On-chain deployment not implemented yet. This is a configuration dry run.",
-  );
 
-  return cfg;
+  let mintAddress: string;
+
+  if (metadataEnabled) {
+    const metadataAuthority = loadKeypair(cfg.authorities.metadata).publicKey;
+    const mintKeypair = Keypair.generate();
+    const mint = mintKeypair.publicKey;
+
+    // Allocate only for MetadataPointer. tokenMetadataInitialize reallocs later.
+    const mintSpace = getMintLen([ExtensionType.MetadataPointer]);
+    const lamports = await connection.getMinimumBalanceForRentExemption(
+      ASSUMED_FINAL_MINT_SIZE,
+    );
+
+    const tx = new Transaction()
+      .add(
+        SystemProgram.createAccount({
+          fromPubkey: payer.publicKey,
+          newAccountPubkey: mint,
+          space: mintSpace,
+          lamports,
+          programId: TOKEN_2022_PROGRAM_ID,
+        }),
+      )
+      .add(
+        createInitializeMetadataPointerInstruction(
+          mint,
+          metadataAuthority,
+          mint,
+          TOKEN_2022_PROGRAM_ID,
+        ),
+      )
+      .add(
+        createInitializeMint2Instruction(
+          mint,
+          decimals,
+          mintAuthority,
+          freezeAuthority,
+          TOKEN_2022_PROGRAM_ID,
+        ),
+      );
+
+    await sendAndConfirmTransaction(connection, tx, [payer, mintKeypair], {
+      commitment: "confirmed",
+    });
+
+    await tokenMetadataInitialize(
+      connection,
+      payer,
+      mint,
+      metadataAuthority,
+      payer,
+      name,
+      symbol,
+      uri,
+      [],
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID,
+    );
+
+    mintAddress = mint.toBase58();
+  } else {
+    const mint = await createMint(
+      connection,
+      payer,
+      mintAuthority,
+      freezeAuthority,
+      decimals,
+      undefined,
+      undefined,
+      programId,
+    );
+    mintAddress = mint.toBase58();
+  }
+
+  console.log("Created mint:", mintAddress);
+
+  updateConfigMint(filePath, mintAddress);
+  console.log("Updated config with mint address:", filePath);
+
+  return {
+    ...cfg,
+    stablecoin: { ...cfg.stablecoin, mint: mintAddress },
+  };
 }
-

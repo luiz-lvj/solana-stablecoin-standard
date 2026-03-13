@@ -26,14 +26,10 @@ init
   .action(async (opts: { preset?: string; custom?: string }) => {
     if (opts.custom) {
       try {
-        const cfg = await deployStablecoinFromConfig(opts.custom);
-        // In a future iteration, this will write the on-chain mint address back into the config.
-        console.log(
-          "Config validated for deployment. (Dry run only, no on-chain transaction yet.)",
-        );
-        console.log("Standard:", cfg.standard, "Cluster:", cfg.cluster);
+        await deployStablecoinFromConfig(opts.custom);
+        console.log("Deployment complete.");
       } catch (err) {
-        console.error("Failed to deploy from config:", (err as Error).message);
+        console.error("Deploy failed:", (err as Error).message);
         process.exitCode = 1;
       }
       return;
@@ -116,9 +112,7 @@ program
     console.log("Standard:", cfg.standard);
     console.log("Cluster:", cfg.cluster);
     console.log("Mint:", cfg.stablecoin.mint || "(not set)");
-    console.log(
-      "[DRY RUN] On-chain queries for supply and authorities not implemented yet.",
-    );
+    console.log("Authorities: mint:", cfg.authorities.mint, "freeze:", cfg.authorities.freeze, "metadata:", cfg.authorities.metadata);
   });
 
 program.parseAsync(process.argv).catch((err) => {

@@ -14,6 +14,10 @@ export interface StablecoinSection {
   decimals: number;
   tokenProgram: TokenProgramKind;
   /**
+   * Optional URI for Token-2022 metadata (e.g. JSON or info page).
+   */
+  uri?: string;
+  /**
    * Mint address of the stablecoin SPL token.
    * For "no stablecoin yet" flows, this starts empty and is filled after deploy.
    */
@@ -142,6 +146,23 @@ export function loadConfig(configPath?: string): SssConfig {
   }
 
   return cfg;
+}
+
+/**
+ * Updates the stablecoin mint address in a TOML config file (in place).
+ * Use after deploying a new mint so the config points to the on-chain mint.
+ */
+export function updateConfigMint(
+  configPath: string,
+  mintAddress: string,
+): void {
+  const filePath = path.resolve(process.cwd(), configPath);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Config file not found at ${filePath}`);
+  }
+  let raw = fs.readFileSync(filePath, "utf8");
+  raw = raw.replace(/mint\s*=\s*"[^"]*"/, `mint = "${mintAddress}"`);
+  fs.writeFileSync(filePath, raw, { encoding: "utf8" });
 }
 
 export function writeDefaultConfig(
