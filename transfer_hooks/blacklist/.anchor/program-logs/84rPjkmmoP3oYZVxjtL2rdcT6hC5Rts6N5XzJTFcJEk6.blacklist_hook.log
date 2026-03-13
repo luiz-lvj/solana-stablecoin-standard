@@ -1,0 +1,187 @@
+Streaming transaction logs mentioning 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6. Confirmed commitment
+Transaction executed in slot 6:
+  Signature: 2PuKYNnrjvLG7RFnWLYgA2YE15L2PCF9YLScQkStZJKXGu72GXYREKJ3k7EihqWS3nv2iNB1DtWV4My5HXc56Yrj
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: InitializeConfig
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 10364 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 8:
+  Signature: 5ZFZ2Fnz5TNVDmLgn1CsZ1X5gyouWPLupxD5rrdVca7mksGn7Ak24fi6NeZp9WGNqxwmn6R3tCDpjLabFeCvhvDg
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: InitializeExtraAccountMetaList
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 16139 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 8:
+  Signature: 62vK18dgzP7CkX1soeUxpvEgVoqawfsTuMMvgcFGaeDpn9FdzXkbF7Prt8TX182GHXJk4xFv4P92UaHFzGBojGv1
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 11470 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 9:
+  Signature: 62vK18dgzP7CkX1soeUxpvEgVoqawfsTuMMvgcFGaeDpn9FdzXkbF7Prt8TX182GHXJk4xFv4P92UaHFzGBojGv1
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 11470 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 9:
+  Signature: 3UAYeEdRPQ8269RHyHMvnnrt1C9XUTzvigZ99d8i4cLRzMF6363UqW1d9rTNh4gAUPTojD2WZuyb2asWSBiYGoWJ
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 9970 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 10:
+  Signature: 3UAYeEdRPQ8269RHyHMvnnrt1C9XUTzvigZ99d8i4cLRzMF6363UqW1d9rTNh4gAUPTojD2WZuyb2asWSBiYGoWJ
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 9970 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 10:
+  Signature: 2juMVCAvdhbunBt4U4JJk16X7HJutD59q9te2jUQoSeLbsbY1KmKw2hoxPM2wTTY3m715QEAKz28WmKtWwt6nzNG
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 9970 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 11:
+  Signature: 2juMVCAvdhbunBt4U4JJk16X7HJutD59q9te2jUQoSeLbsbY1KmKw2hoxPM2wTTY3m715QEAKz28WmKtWwt6nzNG
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 11111111111111111111111111111111 invoke [2]
+    Program 11111111111111111111111111111111 success
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 9970 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 12:
+  Signature: 2j4ShNtWcaoBBU4qiuvw1HNQ6Q7VrYBUR5cuTGV43bVQ3f1eFFYXWGZDjD3Ja54qMzDEym6C2rmwBzvhHhUso5ru
+  Status: Ok
+  Log Messages:
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]
+    Program log: Instruction: TransferChecked
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [2]
+    Program log: Instruction: TransferHook
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 25902 of 171438 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 55198 of 200000 compute units
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb success
+Transaction executed in slot 13:
+  Signature: 2gXjWvjq4AV1tfjbD7688DKGLk33AEHer7hDESs2WQuZZcrNg79PE6jDMyCvnWmULKVeFk31FGWnxguAd3wxH6zz
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: AddToBlacklist
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 7344 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 14:
+  Signature: 4fikRB1e2y63gA6nucyKeThcZtExChnqS9fYhNyaVrwMZva3dEgLTJnRMHGtEuUsnPsE4YWzDufUAyikNnrpTuV2
+  Status: Error processing Instruction 0: custom program error: 0x1771
+  Log Messages:
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]
+    Program log: Instruction: TransferChecked
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [2]
+    Program log: Instruction: TransferHook
+    Program log: AnchorError thrown in programs/blacklist_hook/src/lib.rs:189. Error Code: Blacklisted. Error Number: 6001. Error Message: Wallet is blacklisted.
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 27439 of 171438 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 failed: custom program error: 0x1771
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 56001 of 200000 compute units
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: 0x1771
+Transaction executed in slot 15:
+  Signature: FWXtJgTM7M6Un9NCeTyinCvdijmknNTggRa2PDW8PWW2RG1zeKMLUizeKh1Q2kYwRgRoqMqdexVaSoivfK87fca
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: AddToBlacklist
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 8844 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 16:
+  Signature: 2fRcpxKyV1TLWLTnsCf8c5S7fc6gPt9JQJKkHokAGpbUBx3HzMPdKe2KgjwjycnRfCbfNR6r4fAJtM41HkxcG6H8
+  Status: Error processing Instruction 0: custom program error: 0x1771
+  Log Messages:
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]
+    Program log: Instruction: TransferChecked
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [2]
+    Program log: Instruction: TransferHook
+    Program log: AnchorError thrown in programs/blacklist_hook/src/lib.rs:185. Error Code: Blacklisted. Error Number: 6001. Error Message: Wallet is blacklisted.
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 27346 of 171438 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 failed: custom program error: 0x1771
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 55908 of 200000 compute units
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: 0x1771
+Transaction executed in slot 17:
+  Signature: jJvL5E2XpSmKpH2duTiNFVCFLufo4irY8jJbdoLkvi4dcwY74qCZ8SCgDpATTobVK4vuULbFzx7P16YN4EyWbDe
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 8847 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 17:
+  Signature: 3E4uTrKzaG4CKqgMwvF3GBM3TKS62TS1PyXz5ctg1antd1wN14EpGTF1KmwRREwTWkYT7wenuronGBncRRgdJjDY
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 7347 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 18:
+  Signature: 3E4uTrKzaG4CKqgMwvF3GBM3TKS62TS1PyXz5ctg1antd1wN14EpGTF1KmwRREwTWkYT7wenuronGBncRRgdJjDY
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 7347 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 18:
+  Signature: Bw4Bs5HZcpE3mSZWFWjAHM9rivBCY2bADgkryRPSFHhyfLNhabu7QUZogA3w1CAcBC1cP4zTWv6MRuktRDHEjh1
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 7347 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 19:
+  Signature: Bw4Bs5HZcpE3mSZWFWjAHM9rivBCY2bADgkryRPSFHhyfLNhabu7QUZogA3w1CAcBC1cP4zTWv6MRuktRDHEjh1
+  Status: Ok
+  Log Messages:
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [1]
+    Program log: Instruction: RemoveFromBlacklist
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 7347 of 200000 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+Transaction executed in slot 20:
+  Signature: 3ZtyqzpFEkbccLvx3o3D13HgN2PKxRUpJSvP9F8sfNzYqJjZGs3bjjsZtiHvfWioBmPCtcGcaHBAokrwS9ARAUUS
+  Status: Ok
+  Log Messages:
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [1]
+    Program log: Instruction: TransferChecked
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 invoke [2]
+    Program log: Instruction: TransferHook
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 consumed 25902 of 171438 compute units
+    Program 84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6 success
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 55198 of 200000 compute units
+    Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb success
