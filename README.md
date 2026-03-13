@@ -105,6 +105,40 @@ Each component also has its own README:
 - **Backend**: Express, Pino, Docker
 - **Demo**: React, Vite, Tailwind CSS, Solana Wallet Adapter
 
+## Screenshots
+
+The React demo provides a full management UI with Phantom wallet integration.
+
+### Settings
+
+Configure the RPC endpoint, mint address, token program, and transfer hook program ID.
+
+![Settings](docs/assets/demo-settings.png)
+
+### Dashboard
+
+Live view of supply, decimals, your wallet balance, and on-chain authorities.
+
+![Dashboard](docs/assets/demo-dashboard.png)
+
+### Mint & Burn
+
+Mint tokens to any wallet or burn from your own — every action triggers a Phantom signature prompt.
+
+![Mint & Burn](docs/assets/demo-mint-burn.png)
+
+### Account Management
+
+Freeze, thaw, check balances, and update authorities.
+
+![Accounts](docs/assets/demo-accounts.png)
+
+### Compliance (SSS-2)
+
+Add or remove wallets from the on-chain blacklist and check status in real time.
+
+![Compliance](docs/assets/demo-compliance.png)
+
 ## License
 
 MIT

@@ -149,3 +149,39 @@ npm run dev
 - [SSS-2.md](SSS-2.md) — Compliant stablecoin standard specification
 - [COMPLIANCE.md](COMPLIANCE.md) — Regulatory considerations, audit trail format
 - [API.md](API.md) — Backend REST API reference
+
+---
+
+## Demo Screenshots
+
+The React demo app connects to Phantom and lets you manage a stablecoin directly from the browser.
+
+### Settings
+
+Configure the RPC endpoint, mint address, token program, and hook program ID. Settings are persisted in localStorage.
+
+![Settings](assets/demo-settings.png)
+
+### Dashboard
+
+Real-time view of total supply, decimals, connected wallet balance, and on-chain authorities.
+
+![Dashboard](assets/demo-dashboard.png)
+
+### Mint & Burn
+
+Mint tokens to any wallet (with a "My Wallet" shortcut) or burn from your ATA. Every write triggers a Phantom signature prompt.
+
+![Mint & Burn](assets/demo-mint-burn.png)
+
+### Account Management
+
+Freeze/thaw token accounts, check balances for any wallet, and transfer or revoke authorities.
+
+![Accounts](assets/demo-accounts.png)
+
+### Compliance (SSS-2)
+
+Add or remove wallets from the on-chain blacklist and check blocked status — all enforced at the protocol level by the transfer hook.
+
+![Compliance](assets/demo-compliance.png)
