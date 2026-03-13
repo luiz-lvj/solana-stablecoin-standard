@@ -2,7 +2,7 @@
   "name": "sss-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Backend services for the Solana Stablecoin Standard – mint/burn lifecycle, compliance, event listener, and webhook notifications.",
+  "description": "Backend services for the Solana Stablecoin Standard - mint/burn lifecycle, compliance, event listener, and webhook notifications.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
