@@ -49,13 +49,34 @@ SSS-2 provides the on-chain primitives to implement these requirements. The actu
 └──────────────────────────────────────────────────────────┘
 ```
 
+### compliance_enabled Flag
+
+The SSS-Core program has a `compliance_enabled` boolean on the `StablecoinConfig` PDA that controls whether blacklist checks are enforced during minting:
+
+- **When `true`**: `mint_tokens` checks the recipient's `BlacklistEntry` PDA via `remaining_accounts`. Minting to a blacklisted wallet is rejected with `RecipientBlacklisted`.
+- **When `false`**: No blacklist check is performed during minting.
+
+The flag is set at `initialize` time and can be toggled at any time by the authority via the `set_compliance` instruction.
+
+**CLI (via SDK):**
+
+```typescript
+await stable.core.setCompliance(authorityKeypair, true);  // enable
+await stable.core.setCompliance(authorityKeypair, false); // disable
+```
+
+This replaces the previous hardcoded `preset == PRESET_SSS2` check, giving issuers runtime control over compliance enforcement.
+
+> **Note**: This flag only controls the blacklist check during `mint_tokens`. The transfer hook enforces blacklist checks on all `TransferChecked` calls independently of this flag.
+
 ### Workflow
 
 1. **Screening service** (off-chain) monitors wallets against sanctions databases.
-2. When a match is found, the compliance officer uses the CLI, SDK, or demo to call `blacklist add`.
+2. When a match is found, the compliance officer uses the CLI, SDK, or demo to call `compliance add` (or `blacklist add`).
 3. The on-chain BlacklistEntry PDA is created/updated with `blocked = true`.
 4. All subsequent transfers involving that wallet are rejected at the protocol level by Token-2022.
-5. When a wallet is cleared, the officer calls `blacklist remove`, setting `blocked = false`.
+5. When `compliance_enabled` is true on SSS-Core, minting to the wallet is also blocked.
+6. When a wallet is cleared, the officer calls `compliance remove`, setting `blocked = false`.
 
 ---
 
@@ -69,23 +90,25 @@ Every compliance action is a Solana transaction with a permanent, immutable sign
 
 | Action | Transaction Contents |
 |--------|---------------------|
-| `blacklist add <wallet>` | Calls `add_to_blacklist` on the hook program. Creates or updates a BlacklistEntry PDA. |
-| `blacklist remove <wallet>` | Calls `remove_from_blacklist` on the hook program. Updates the BlacklistEntry PDA. |
-| `blacklist close <wallet>` | Calls `close_blacklist_entry`. Reclaims rent for an unblocked entry. |
-| `blacklist transfer-admin` | Calls `transfer_admin`. Nominates a new blacklist admin. |
-| `blacklist accept-admin` | Calls `accept_admin`. Finalizes the two-step admin transfer. |
-| `freeze <account>` | Calls `FreezeAccount` on Token-2022. |
-| `thaw <account>` | Calls `ThawAccount` on Token-2022. |
-| `set-authority <type> <new>` | Calls `SetAuthority` on Token-2022. |
-| `mint <recipient> <amount>` | Calls `MintTo` on Token-2022. |
-| `burn <amount>` | Calls `Burn` on Token-2022. |
+| `compliance add <wallet>` | Calls `add_to_blacklist` on the hook program. Creates or updates a BlacklistEntry PDA. |
+| `compliance remove <wallet>` | Calls `remove_from_blacklist` on the hook program. Updates the BlacklistEntry PDA. |
+| `compliance close <wallet>` | Calls `close_blacklist_entry`. Reclaims rent for an unblocked entry. |
+| `compliance transfer-admin` | Calls `transfer_admin`. Nominates a new blacklist admin. |
+| `compliance accept-admin` | Calls `accept_admin`. Finalizes the two-step admin transfer. |
+| `admin freeze <account>` | Calls `FreezeAccount` on Token-2022. |
+| `admin thaw <account>` | Calls `ThawAccount` on Token-2022. |
+| `admin set-authority <type> <new>` | Calls `SetAuthority` on Token-2022. |
+| `operate mint <recipient> <amount>` | Calls `MintTo` on Token-2022. |
+| `operate burn <amount>` | Calls `Burn` on Token-2022. |
+| `set_compliance(enabled)` | Toggles `compliance_enabled` on the SSS-Core config PDA. |
+| `attest_reserve(reserve_amount, source, uri)` | Creates or updates the ReserveAttestation PDA with proof-of-reserve data. Emits `ReserveAttested` event. |
 
 ### Retrieving the Audit Trail
 
 **CLI:**
 
 ```bash
-npx sss-token audit-log --limit 100
+npx solana-stable inspect audit-log --limit 100
 ```
 
 **SDK:**
@@ -149,7 +172,7 @@ const blocked = info && info.data.length >= 73 ? info.data[72] !== 0 : false;
 **CLI:**
 
 ```bash
-npx sss-token blacklist check <wallet>
+npx solana-stable compliance check <wallet>
 ```
 
 **SDK:**
@@ -203,12 +226,34 @@ The webhook payload includes the transaction signature, slot, and mint address. 
 
 ---
 
+## Proof-of-Reserve Attestation
+
+The SSS-Core program supports **reserve attestation** — on-chain recording of proof-of-reserve data. This helps issuers demonstrate reserve backing and supports regulatory frameworks such as the U.S. GENIUS Act.
+
+**How it works:**
+
+1. The authority grants `ROLE_ATTESTOR` (role value 6) to a designated attestor (e.g., auditor or compliance officer).
+2. The attestor calls `attest_reserve(reserve_amount, source, uri)` to create or update the `ReserveAttestation` PDA.
+3. The PDA stores: `reserve_amount` (total backing), `source` (description of reserve type, max 128 chars), `uri` (link to off-chain proof document, max 256 chars), and `timestamp`.
+4. Each attestation emits a `ReserveAttested` event.
+5. Anyone can read the latest attestation via `view_reserve()` (simulate, no signer required).
+
+**Regulatory value:**
+
+- **Transparency**: On-chain attestation provides verifiable, timestamped records of reserve levels.
+- **Audit trail**: The `uri` field links to detailed off-chain audit reports (PDFs, attestation letters) while keeping the chain lean.
+- **Periodic updates**: Issuers can update attestations periodically (e.g., monthly) to reflect current reserve levels.
+
+---
+
 ## Regulatory Mapping
 
 | Requirement | SSS Feature |
 |-------------|------------|
 | KYC/AML screening | Off-chain screening + on-chain blacklist |
 | Sanctions enforcement | Blacklist transfer hook (SSS-2) |
+| Proof-of-reserve / GENIUS Act | Reserve attestation (`attest_reserve`, `view_reserve`) |
+| Mint-time compliance | `compliance_enabled` flag + `set_compliance` instruction |
 | Account freezing | Freeze authority (SSS-1/SSS-2) |
 | Issuance controls | Mint authority with optional revocation |
 | Audit trail | On-chain transaction history |

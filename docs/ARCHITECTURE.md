@@ -42,13 +42,18 @@ On every transfer, the hook: (1) verifies the `TransferHookAccount.transferring`
 
 The core on-chain program that defines the **StablecoinConfig PDA** — the foundation of the standard. It provides:
 
-- **RBAC**: PDA-per-role pattern (`["role", config, grantee, role_type]`). Roles: Minter, Burner, Freezer, Pauser, Blacklister, Seizer.
+- **RBAC**: PDA-per-role pattern (`["role", config, grantee, role_type]`). Roles: Minter, Burner, Freezer, Pauser, Blacklister, Seizer. Each `RoleEntry` records `granted_by` (the authority who granted the role).
 - **Per-Minter Quotas**: `MinterInfo` PDA tracks cumulative minted amounts against configurable caps.
 - **Pause/Unpause**: Protocol-level pause flag on the config PDA. Blocks mint, burn, and seize.
 - **Two-Step Authority Transfer**: Nominate → accept pattern prevents accidental loss of admin control.
-- **Seize**: Atomic thaw → burn (permanent delegate) → mint to treasury → re-freeze. Bypasses the transfer hook since seizure is an authority action, not a user transfer.
+- **Seize**: Atomic thaw → burn (permanent delegate) → mint to treasury → re-freeze. The `StablecoinConfig` tracks `total_seized` alongside `total_minted` and `total_burned`. Bypasses the transfer hook since seizure is an authority action, not a user transfer.
 - **Supply Cap**: Optional on-chain supply ceiling enforced during minting.
+- **Compliance Toggle**: `compliance_enabled` boolean on the config PDA. When true, `mint_tokens` checks the recipient's blacklist entry via `remaining_accounts`. Replaces the hardcoded preset check.
+- **Metadata Updates**: `update_metadata` instruction updates on-mint metadata (name, symbol, uri) via CPI to Token-2022.
+- **Burn From**: `burn_from` burns from any account using the permanent delegate, unlike `burn_tokens` which can only burn from the burner's own ATA.
+- **Read-Only Views**: `view_config` and `view_minter` expose config/minter state via `simulateTransaction`, requiring no signer.
 - **Typed Events**: All state changes emit Anchor events for on-chain auditability.
+- **Feature-Gated Modules**: The program uses Cargo features (`compliance`, `quotas`, `supply-cap`) to selectively compile enforcement logic. All are enabled by default. Issuers can strip modules they don't need to reduce compute and program size.
 
 On `initialize`, the program transfers the mint authority and freeze authority to the config PDA, ensuring all mint/burn/freeze operations must route through the program.
 
@@ -86,7 +91,7 @@ A React/Vite app with Tailwind CSS and the Solana Wallet Adapter. It builds tran
 ```
 Operator                CLI                  Solana
    │                     │                     │
-   │  sss-token mint     │                     │
+   │  solana-stable mint  │                     │
    │  <recipient> <amt>  │                     │
    │────────────────────>│                     │
    │                     │  loadConfig()       │
@@ -171,6 +176,24 @@ SSS encourages separating authorities across different keypairs:
 | **Blacklist Admin** (SSS-2) | Adding/removing wallets from the blacklist | Changeable via Config PDA |
 | **Pause Authority** (optional) | Halting all transfers | Yes |
 | **Permanent Delegate** (optional) | Recovering/seizing tokens from any account | Cannot be revoked once set |
+
+### Dual Pause Mechanism
+
+SSS has two independent pause mechanisms, and operators should understand when to use each:
+
+| Mechanism | Level | Scope | Use When |
+|-----------|-------|-------|----------|
+| **Token-2022 `PausableConfig`** | Protocol (runtime) | Blocks **all** token operations: transfers, mints, burns. Enforced by the Solana runtime itself. | Emergency halt of all token movement. No transactions of any kind can occur. |
+| **SSS-Core `config.paused`** | Application (program) | Blocks **program-gated** operations only: mint, burn, seize via `sss-core`. Does **not** block direct `TransferChecked` calls to Token-2022. | Operational pause — stop new issuance and burns while allowing existing holders to transfer. |
+
+**When compliance_enabled is true**, the SSS-2 blacklist transfer hook continues to enforce transfer restrictions regardless of the `config.paused` flag. The transfer hook is triggered by Token-2022 and is independent of `sss-core`.
+
+**Recommended workflow**:
+- **Routine maintenance**: Use `sss-core` pause. Holders can still move tokens.
+- **Security incident**: Use Token-2022 pause. Nothing moves until the situation is resolved.
+- **Both together**: Belt-and-suspenders approach for maximum safety.
+
+The SDK's `pause()` and `unpause()` methods control the **Token-2022** extension (protocol-level). The `SssCoreClient`'s operations respect the **sss-core** `config.paused` flag (application-level). The CLI's `admin pause` / `admin unpause` operates on the Token-2022 level.
 
 ### On-Chain Enforcement
 

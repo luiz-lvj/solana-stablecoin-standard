@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Day-to-day operator guide for managing an SSS stablecoin. All examples use the CLI (`sss-token`). The SDK equivalents are documented in [SDK.md](SDK.md).
+Day-to-day operator guide for managing an SSS stablecoin. All examples use the CLI (`solana-stable`). The SDK equivalents are documented in [SDK.md](SDK.md).
 
 ## Prerequisites
 
@@ -10,6 +10,30 @@ cd cli && npm install && npm run build
 
 Ensure your `sss-token.config.toml` has the correct authority keypair paths and a deployed mint address.
 
+## Global Flags
+
+All commands accept the following flags:
+
+| Flag | Description |
+|------|-------------|
+| `--config <path>` | Config file path (default: `sss-token.config.toml`) |
+| `--output text\|json` | Output format (`text` is default, `json` for scripting) |
+| `--dry-run` | Build and display the transaction without sending |
+| `--yes` | Skip confirmation prompts |
+
+## CLI Command Groups
+
+The CLI organizes commands into logical groups:
+
+| Group | Purpose | Example |
+|-------|---------|---------|
+| `operate` | Day-to-day operations | `solana-stable operate mint ...` |
+| `admin` | Admin operations | `solana-stable admin freeze ...` |
+| `compliance` | Compliance management | `solana-stable compliance add ...` |
+| `inspect` | Read-only queries | `solana-stable inspect status` |
+
+Flat commands (without the group prefix) remain functional for backward compatibility. For example, `solana-stable mint ...` is equivalent to `solana-stable operate mint ...`.
+
 ---
 
 ## Deployment
@@ -18,14 +42,14 @@ Ensure your `sss-token.config.toml` has the correct authority keypair paths and 
 
 ```bash
 # Generate a config
-npx sss-token init --preset sss-1
+npx solana-stable init --preset sss-1
 
 # Edit sss-token.config.toml:
 #   [stablecoin] name, symbol, decimals
 #   [authorities] mint, freeze, metadata — set keypair file paths
 
 # Deploy
-npx sss-token init --custom sss-token.config.toml
+npx solana-stable init --custom sss-token.config.toml
 ```
 
 The CLI will:
@@ -36,7 +60,7 @@ The CLI will:
 ### SSS-2 (Compliant)
 
 ```bash
-npx sss-token init --preset sss-2
+npx solana-stable init --preset sss-2
 
 # Edit sss-token.config.toml:
 #   Same as SSS-1, plus:
@@ -44,7 +68,7 @@ npx sss-token init --preset sss-2
 #   [extensions.transferHook] enabled = true
 #   [extensions.transferHook] programId = "<deployed-hook-program-id>"
 
-npx sss-token init --custom sss-token.config.toml
+npx solana-stable init --custom sss-token.config.toml
 ```
 
 The CLI will additionally:
@@ -58,13 +82,15 @@ The CLI will additionally:
 ### Mint Tokens
 
 ```bash
+npx solana-stable operate mint <recipient-wallet> <amount-raw-units>
+# or (flat, backward-compatible):
 npx solana-stable mint <recipient-wallet> <amount-raw-units>
 ```
 
 Example: mint 1,000 tokens (with 6 decimals = 1,000,000,000 raw units):
 
 ```bash
-npx solana-stable mint Dkvvhfumm9TZ7oCX9DnowbEaorLvmFpF3T8GZCAaebAT 1000000000
+npx solana-stable operate mint Dkvvhfumm9TZ7oCX9DnowbEaorLvmFpF3T8GZCAaebAT 1000000000
 ```
 
 The ATA for the recipient is created automatically if it doesn't exist.
@@ -72,7 +98,7 @@ The ATA for the recipient is created automatically if it doesn't exist.
 ### Burn Tokens
 
 ```bash
-npx solana-stable burn <amount-raw-units>
+npx solana-stable operate burn <amount-raw-units>
 ```
 
 Burns from the mint authority's own ATA.
@@ -80,7 +106,7 @@ Burns from the mint authority's own ATA.
 ### Transfer Tokens
 
 ```bash
-npx solana-stable transfer <recipient-wallet> <amount-raw-units>
+npx solana-stable operate transfer <recipient-wallet> <amount-raw-units>
 ```
 
 Transfers tokens to a recipient wallet. Uses `TransferChecked` with automatic transfer-hook resolution — works for both SSS-1 and SSS-2 tokens. On SSS-2, the blacklist hook is invoked automatically and the transfer is rejected if sender or recipient is blacklisted.
@@ -88,19 +114,19 @@ Transfers tokens to a recipient wallet. Uses `TransferChecked` with automatic tr
 Example:
 
 ```bash
-npx solana-stable transfer Dkvvhfumm9TZ7oCX9DnowbEaorLvmFpF3T8GZCAaebAT 500000000
+npx solana-stable operate transfer Dkvvhfumm9TZ7oCX9DnowbEaorLvmFpF3T8GZCAaebAT 500000000
 ```
 
 ### Check Supply
 
 ```bash
-npx sss-token supply
+npx solana-stable inspect supply
 ```
 
 ### Check Balance
 
 ```bash
-npx sss-token balance <wallet>
+npx solana-stable inspect balance <wallet>
 ```
 
 ---
@@ -112,7 +138,7 @@ npx sss-token balance <wallet>
 Prevents the account from sending or receiving tokens.
 
 ```bash
-npx sss-token freeze <token-account-address>
+npx solana-stable admin freeze <token-account-address>
 ```
 
 Note: this takes the **token account** (ATA) address, not the wallet address.
@@ -120,7 +146,7 @@ Note: this takes the **token account** (ATA) address, not the wallet address.
 ### Thaw an Account
 
 ```bash
-npx sss-token thaw <token-account-address>
+npx solana-stable admin thaw <token-account-address>
 ```
 
 ### Pause / Unpause (Pausable Extension)
@@ -128,9 +154,11 @@ npx sss-token thaw <token-account-address>
 Halts all transfers for the entire mint. Requires the Pausable extension.
 
 ```bash
-npx sss-token pause
-npx sss-token unpause
+npx solana-stable admin pause
+npx solana-stable admin unpause
 ```
+
+> **Dual pause**: Token-2022 `PausableConfig` is a protocol-level halt (blocks everything). SSS-Core `config.paused` is an application-level halt (blocks only program-gated ops like mint/burn/seize). See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
 
 ---
 
@@ -139,7 +167,7 @@ npx sss-token unpause
 ### View Current Authorities
 
 ```bash
-npx sss-token status
+npx solana-stable inspect status
 ```
 
 Shows the on-chain mint authority, freeze authority, and other config info.
@@ -147,7 +175,7 @@ Shows the on-chain mint authority, freeze authority, and other config info.
 ### Transfer an Authority
 
 ```bash
-npx sss-token set-authority <type> <new-public-key>
+npx solana-stable admin set-authority <type> <new-public-key>
 ```
 
 Supported types: `mint`, `freeze`, `metadata`, `metadata-pointer`, `pause`, `permanent-delegate`, `close-mint`, `interest-rate`.
@@ -155,7 +183,7 @@ Supported types: `mint`, `freeze`, `metadata`, `metadata-pointer`, `pause`, `per
 Example — transfer freeze authority:
 
 ```bash
-npx sss-token set-authority freeze GFL8QJXA1eox5ZiqsjL1P19NB8svWRL6nHDzPFetTjVh
+npx solana-stable admin set-authority freeze GFL8QJXA1eox5ZiqsjL1P19NB8svWRL6nHDzPFetTjVh
 ```
 
 ### Revoke an Authority
@@ -163,7 +191,7 @@ npx sss-token set-authority freeze GFL8QJXA1eox5ZiqsjL1P19NB8svWRL6nHDzPFetTjVh
 Pass `none` as the new authority:
 
 ```bash
-npx sss-token set-authority mint none
+npx solana-stable admin set-authority mint none
 ```
 
 **Warning**: Revoking the mint authority is irreversible. No more tokens can ever be minted.
@@ -177,7 +205,7 @@ These commands require an SSS-2 token with a configured blacklist program.
 ### Blacklist a Wallet
 
 ```bash
-npx sss-token blacklist add <wallet>
+npx solana-stable compliance add <wallet> --reason "OFAC SDN"
 ```
 
 The wallet will be unable to send or receive this token. The on-chain `BlacklistEntry` PDA is created (if it doesn't exist) with `blocked = true`.
@@ -185,7 +213,7 @@ The wallet will be unable to send or receive this token. The on-chain `Blacklist
 ### Remove from Blacklist
 
 ```bash
-npx sss-token blacklist remove <wallet>
+npx solana-stable compliance remove <wallet>
 ```
 
 Sets `blocked = false` on the PDA. The PDA remains on-chain for future use.
@@ -193,7 +221,7 @@ Sets `blocked = false` on the PDA. The PDA remains on-chain for future use.
 ### Check Blacklist Status
 
 ```bash
-npx sss-token blacklist check <wallet>
+npx solana-stable compliance check <wallet>
 ```
 
 Read-only — reports whether the wallet is currently blocked.
@@ -201,7 +229,7 @@ Read-only — reports whether the wallet is currently blocked.
 ### Close a Blacklist Entry (Reclaim Rent)
 
 ```bash
-npx sss-token blacklist close <wallet>
+npx solana-stable compliance close <wallet>
 ```
 
 Closes an unblocked (`blocked = false`) BlacklistEntry PDA and reclaims rent to the admin. Fails if the entry is still blocked.
@@ -210,13 +238,55 @@ Closes an unblocked (`blocked = false`) BlacklistEntry PDA and reclaims rent to 
 
 ```bash
 # Step 1: Current admin nominates the new admin
-npx sss-token blacklist transfer-admin <new-admin-pubkey>
+npx solana-stable compliance transfer-admin <new-admin-pubkey>
 
 # Step 2: New admin accepts the role
-npx sss-token blacklist accept-admin <keypair-path>
+npx solana-stable compliance accept-admin <keypair-path>
 ```
 
 The current admin remains active until the new admin accepts.
+
+### Toggle Compliance Enforcement
+
+Enable or disable compliance (blacklist checks on mint) via the SDK:
+
+```typescript
+await stable.core.setCompliance(authorityKeypair, true);  // enable
+await stable.core.setCompliance(authorityKeypair, false); // disable
+```
+
+When `compliance_enabled` is true, `mint_tokens` checks the recipient's blacklist entry before minting. This flag is stored on the `StablecoinConfig` PDA and can be toggled at any time by the authority.
+
+### Update On-Mint Metadata (SDK)
+
+Update the token's name, symbol, or URI via the authority:
+
+```typescript
+await stable.core.updateMetadata(authorityKeypair, "name", "Updated Token Name");
+await stable.core.updateMetadata(authorityKeypair, "uri", "https://example.com/new-metadata.json");
+```
+
+### Reserve Attestation (Proof-of-Reserve)
+
+Issuers can record proof-of-reserve attestations on-chain to support regulatory transparency (e.g., GENIUS Act compliance). An attestor with `ROLE_ATTESTOR` calls `attest_reserve` with:
+
+- **reserve_amount** — Total reserve backing (raw units)
+- **source** — Short description of the reserve source (max 128 chars, e.g. "US Treasury Bills")
+- **uri** — Link to off-chain proof document (max 256 chars, e.g. auditor report URL)
+
+The `ReserveAttestation` PDA is created or updated (one per config). Anyone can read the latest attestation via `view_reserve` (simulate call). See [COMPLIANCE.md](COMPLIANCE.md) for regulatory context.
+
+**CLI/SDK:** On-chain support is available; CLI and SDK convenience methods may be added in a future release. For now, use the program IDL directly or build transactions manually.
+
+### Burn From Any Account (SDK)
+
+Burn tokens from any holder's account using the permanent delegate. Unlike `burn_tokens` (which only burns from the burner's own ATA), `burn_from` can target any account:
+
+```typescript
+await stable.core.burnFrom(burnerKeypair, targetAta, 100_000n);
+```
+
+Requires `ROLE_BURNER`.
 
 ### Seize Tokens (SDK Only)
 
@@ -240,7 +310,7 @@ This thaws the account, burns the specified amount (via permanent delegate), min
 ### Transaction History
 
 ```bash
-npx sss-token audit-log --limit 50
+npx solana-stable inspect audit-log --limit 50
 ```
 
 Fetches recent transaction signatures involving the mint from the chain.
@@ -268,13 +338,13 @@ curl -X POST http://localhost:3000/api/v1/webhooks \
 ### Freeze a Compromised Account
 
 ```bash
-npx sss-token freeze <compromised-ata>
+npx solana-stable admin freeze <compromised-ata>
 ```
 
 ### Blacklist a Sanctioned Wallet (SSS-2)
 
 ```bash
-npx sss-token blacklist add <wallet>
+npx solana-stable compliance add <wallet> --reason "sanctions match"
 ```
 
 This takes effect immediately — the next transfer attempt will be rejected by the transfer hook.
@@ -284,19 +354,19 @@ This takes effect immediately — the next transfer attempt will be rejected by 
 If the Pausable extension is enabled:
 
 ```bash
-npx sss-token pause
+npx solana-stable admin pause
 ```
 
 To resume:
 
 ```bash
-npx sss-token unpause
+npx solana-stable admin unpause
 ```
 
 ### Revoke Mint Authority (Kill Switch)
 
 ```bash
-npx sss-token set-authority mint none
+npx solana-stable admin set-authority mint none
 ```
 
 No new tokens can be created after this. Existing tokens continue to function normally.

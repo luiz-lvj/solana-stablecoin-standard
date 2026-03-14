@@ -134,7 +134,7 @@ The blacklist hook is an Anchor program deployed separately. The mint's Transfer
 |-------------|--------|--------|
 | `initialize_config` | Admin | Creates the Config PDA |
 | `initialize_extra_account_meta_list` | Admin | Creates the ExtraAccountMetaList PDA |
-| `add_to_blacklist(wallet)` | Admin | Creates/updates BlacklistEntry, sets `blocked = true` |
+| `add_to_blacklist(wallet, reason)` | Admin | Creates/updates BlacklistEntry, sets `blocked = true`. `reason` is stored on-chain. |
 | `remove_from_blacklist(wallet)` | Admin | Sets `blocked = false` on existing BlacklistEntry |
 | `close_blacklist_entry(wallet)` | Admin | Closes an **unblocked** BlacklistEntry PDA, reclaims rent |
 | `transfer_admin(new_admin)` | Admin | Nominates a new admin (two-step) |
@@ -176,9 +176,10 @@ The SSS-Core Anchor program provides on-chain RBAC, per-minter quotas, supply ca
 
 | Account | Seeds | Key Fields |
 |---------|-------|------------|
-| StablecoinConfig | `["sss-config", mint]` | `authority`, `pending_authority`, `mint`, `preset`, `paused`, `total_minted`, `total_burned`, `supply_cap`, `bump`, `_reserved[64]` |
-| RoleEntry | `["role", config, grantee, role_id]` | `config`, `authority`, `role`, `granted_at`, `bump`, `_reserved[32]` |
+| StablecoinConfig | `["sss-config", mint]` | `authority`, `pending_authority`, `mint`, `preset`, `paused`, `compliance_enabled`, `total_minted`, `total_burned`, `total_seized`, `supply_cap`, `bump`, `_reserved[64]` |
+| RoleEntry | `["role", config, grantee, role_id]` | `config`, `authority`, `role`, `granted_at`, `granted_by`, `bump`, `_reserved[32]` |
 | MinterInfo | `["minter", config, minter]` | `config`, `minter`, `quota`, `total_minted`, `is_active`, `bump`, `_reserved[32]` |
+| ReserveAttestation | `["reserve", config]` | `config`, `attestor`, `reserve_amount`, `source` (max 128 chars), `uri` (max 256 chars), `timestamp`, `bump`, `_reserved[32]` |
 
 ### 4.2 Roles
 
@@ -190,17 +191,19 @@ The SSS-Core Anchor program provides on-chain RBAC, per-minter quotas, supply ca
 | 3 | Pauser | `pause`, `unpause` |
 | 4 | Blacklister | Reserved for blacklist operations |
 | 5 | Seizer | `seize` (thaw → burn → mint → re-freeze) |
+| 6 | Attestor | `attest_reserve` (record proof-of-reserve attestations) |
 
 ### 4.3 Instructions
 
 | Instruction | Signer | Description |
 |-------------|--------|-------------|
-| `initialize(preset, supply_cap)` | Authority | Creates StablecoinConfig, transfers mint authority to config PDA |
+| `initialize(preset, supply_cap, compliance_enabled)` | Authority | Creates StablecoinConfig, transfers mint authority to config PDA. `compliance_enabled` sets the initial compliance flag. |
 | `grant_role(role)` | Authority | Creates RoleEntry PDA for a grantee |
 | `revoke_role(role)` | Authority | Closes RoleEntry PDA |
 | `set_minter_quota(quota)` | Authority | Creates/updates MinterInfo with per-minter cap |
-| `mint_tokens(amount)` | Minter (with role) | RBAC-gated mint, enforces quota and supply cap |
-| `burn_tokens(amount)` | Burner (with role) | RBAC-gated burn |
+| `mint_tokens(amount)` | Minter (with role) | RBAC-gated mint, enforces quota and supply cap. When `compliance_enabled`, the recipient is checked against the blacklist via `remaining_accounts`; minting to a blacklisted wallet is rejected with `RecipientBlacklisted`. |
+| `burn_tokens(amount)` | Burner (with role) | RBAC-gated burn from the burner's own ATA |
+| `burn_from(amount)` | Burner (with role) | Burn from **any** account using the permanent delegate. Requires `ROLE_BURNER`. |
 | `freeze_token_account` | Freezer (with role) | RBAC-gated freeze |
 | `thaw_token_account` | Freezer (with role) | RBAC-gated thaw |
 | `pause` | Pauser (with role) | Sets `paused = true` on config |
@@ -208,23 +211,118 @@ The SSS-Core Anchor program provides on-chain RBAC, per-minter quotas, supply ca
 | `seize(amount)` | Seizer (with role) | Atomic thaw → burn → mint to treasury → re-freeze |
 | `transfer_authority(new)` | Authority | Nominates new authority (two-step) |
 | `accept_authority` | Pending authority | Accepts authority transfer |
+| `update_metadata(field, value)` | Authority | Update on-mint metadata (name, symbol, uri) via CPI to Token-2022. `field` must be one of `"name"`, `"symbol"`, `"uri"`. |
+| `set_compliance(enabled)` | Authority | Toggle the `compliance_enabled` flag on the config |
+| `view_config()` | None | Read-only view of config state. Intended for use via `simulateTransaction`; no signer required. |
+| `view_minter()` | None | Read-only view of minter info. Intended for use via `simulateTransaction`; no signer required. |
+| `attest_reserve(reserve_amount, source, uri)` | Attestor (with role) | Create or update the ReserveAttestation PDA with proof-of-reserve data. Uses `init_if_needed` — repeated attestations update the same PDA. Requires `ROLE_ATTESTOR`. |
+| `view_reserve()` | None | Read-only view of the latest attestation. Intended for use via `simulateTransaction`; no signer required. |
 
 ### 4.4 Events
 
 All state-changing instructions emit typed Anchor events:
 
-`ConfigInitialized`, `TokensMinted`, `TokensBurned`, `StablecoinPaused`, `StablecoinUnpaused`, `RoleGranted`, `RoleRevoked`, `MinterQuotaSet`, `AuthorityNominated`, `AuthorityTransferred`, `TokensSeized`, `TokenAccountFrozen`, `TokenAccountThawed`
+`ConfigInitialized`, `TokensMinted`, `TokensBurned`, `TokensBurnedFrom`, `StablecoinPaused`, `StablecoinUnpaused`, `RoleGranted`, `RoleRevoked`, `MinterQuotaSet`, `AuthorityNominated`, `AuthorityTransferred`, `TokensSeized`, `TokenAccountFrozen`, `TokenAccountThawed`, `MetadataUpdated`, `ComplianceToggled`, `ReserveAttested`
 
-### 4.5 Supply Cap
+#### New Event Fields
+
+| Event | Fields |
+|-------|--------|
+| `TokensBurnedFrom` | `config`, `mint`, `burner`, `target`, `amount`, `total_burned` |
+| `MetadataUpdated` | `config`, `mint`, `authority`, `field`, `value` |
+| `ComplianceToggled` | `config`, `authority`, `enabled` |
+| `ReserveAttested` | `config`, `attestor`, `reserve_amount`, `source`, `uri`, `timestamp` |
+
+### 4.5 Error Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| 6000 | `Paused` | The stablecoin is paused; operation rejected |
+| 6001 | `Unauthorized` | Signer does not have the required authority |
+| 6002 | `InvalidRole` | The role value is out of range or does not match the operation |
+| 6003 | `QuotaExceeded` | Minter's cumulative minted amount would exceed their quota |
+| 6004 | `SupplyCapExceeded` | Net supply would exceed the on-chain supply cap |
+| 6005 | `MathOverflow` | Arithmetic overflow in supply accounting |
+| 6006 | `NoPendingAuthority` | No pending authority nomination to accept |
+| 6007 | `PendingAuthorityMismatch` | Signer does not match the nominated pending authority |
+| 6008 | `AlreadyPaused` | The stablecoin is already paused |
+| 6009 | `NotPaused` | The stablecoin is not paused; cannot unpause |
+| 6010 | `AccountNotFrozen` | The token account is not frozen; cannot thaw or seize |
+| 6011 | `AccountFrozen` | The token account is already frozen |
+| 6012 | `MinterNotActive` | The minter's MinterInfo has `is_active = false` |
+| 6013 | `InvalidPreset` | The preset value is out of range |
+| 6014 | `RecipientBlacklisted` | The recipient wallet is on the blacklist (SSS-2 mint check) |
+| 6015 | `InvalidMetadataField` | The metadata field name is not one of `name`, `symbol`, or `uri` |
+| 6016 | `ComplianceNotEnabled` | Operation requires `compliance_enabled = true` on the config |
+
+### 4.6 Supply Cap
 
 If `supply_cap` is `Some(n)`, then `total_minted - total_burned` MUST NOT exceed `n` after any `mint_tokens` call. If `supply_cap` is `None`, there is no on-chain limit.
 
-### 4.6 Quota Enforcement
+### 4.7 Quota Enforcement
 
 On `mint_tokens(amount)`:
 1. Check `MinterInfo.is_active == true`
 2. Check `MinterInfo.total_minted + amount <= MinterInfo.quota`
 3. If both pass, increment `MinterInfo.total_minted` and `StablecoinConfig.total_minted`
+
+### 4.8 Compliance Enforcement
+
+The `compliance_enabled` boolean on `StablecoinConfig` controls whether `mint_tokens` checks the recipient's blacklist entry. This replaces the earlier hardcoded `preset == PRESET_SSS2` check.
+
+- When `compliance_enabled = true`, `mint_tokens` expects the recipient's `BlacklistEntry` PDA in `remaining_accounts` and rejects with `RecipientBlacklisted` if the wallet is blocked.
+- When `compliance_enabled = false`, no blacklist check is performed during minting.
+- The flag is set at `initialize` time via the `complianceEnabled` parameter and can be toggled at any time by the authority via `set_compliance(enabled)`.
+
+### 4.9 Dual Pause Mechanism
+
+SSS supports two independent pause mechanisms:
+
+| Mechanism | Level | Scope | Use When |
+|-----------|-------|-------|----------|
+| **Token-2022 `PausableConfig`** | Protocol (runtime) | Blocks **all** token operations: transfers, mints, burns. Enforced by the Solana runtime. | Emergency halt of all token movement. |
+| **SSS-Core `config.paused`** | Application (program) | Blocks **program-gated** operations only: mint, burn, seize via `sss-core`. Does **not** block direct `TransferChecked` calls to Token-2022. | Operational pause — stop new issuance and burns while allowing existing holders to transfer. |
+
+Both can be used together for defense-in-depth. The blacklist transfer hook continues to enforce transfer restrictions regardless of `config.paused`.
+
+### 4.10 Feature-Gated Modules
+
+The SSS-Core program supports compile-time feature flags to selectively include enforcement logic. All features are **enabled by default**.
+
+| Feature | Cargo Flag | Controls |
+|---------|-----------|----------|
+| `compliance` | `--features compliance` | Blacklist check on `mint_tokens` when `compliance_enabled` is true |
+| `quotas` | `--features quotas` | Per-minter quota enforcement in `mint_tokens` |
+| `supply-cap` | `--features supply-cap` | Supply cap enforcement in `mint_tokens` |
+
+To build with a subset:
+
+```
+cargo build --no-default-features --features "quotas,supply-cap"
+```
+
+### 4.11 Auto-Init Flow
+
+When the SDK's `create()` is called with `ssCoreProgramId` in `CreateOptions`, the deployment sequence extends automatically:
+
+1. Deploy the Token-2022 mint (standard flow).
+2. Call `sss-core::initialize` to create the `StablecoinConfig` PDA.
+3. For SSS-2 preset, `compliance_enabled` is set to `true` automatically.
+
+This means a single `create()` call can produce a fully operational mint with RBAC, quotas, and supply cap ready to use.
+
+### 4.12 Proof-of-Reserve & GENIUS Act Compliance
+
+The **Reserve Attestation** feature enables issuers to record proof-of-reserve data on-chain, supporting regulatory requirements such as the U.S. GENIUS Act (Generating Economic Empowerment for Noncustodial Institutional Users and Self-Custody Act).
+
+**How it works:**
+
+- An **Attestor** (with `ROLE_ATTESTOR`) calls `attest_reserve(reserve_amount, source, uri)` to create or update the `ReserveAttestation` PDA.
+- The PDA stores: `reserve_amount` (u64), `source` (string, max 128 chars — describes the reserve source, e.g. "US Treasury Bills"), and `uri` (string, max 256 chars — link to off-chain proof document such as an auditor report).
+- Each attestation emits a `ReserveAttested` event and is timestamped on-chain.
+- Anyone can read the latest attestation via `view_reserve()` (simulate call, no signer required).
+
+This provides on-chain transparency for reserve backing while keeping detailed audit documents off-chain. Issuers can update attestations periodically (e.g., monthly) to reflect current reserve levels.
 
 ---
 
@@ -234,7 +332,7 @@ Conforming SDK implementations MUST provide:
 
 ### 5.1 Static Factories
 
-- `create(connection, options)` — Deploy a new mint with the chosen preset.
+- `create(connection, options)` — Deploy a new mint with the chosen preset. When `ssCoreProgramId` is provided in options, automatically initializes the SSS-Core config PDA after deployment.
 - `load(connection, options)` — Connect to an existing on-chain mint.
 
 ### 5.2 Instance Methods
@@ -267,7 +365,7 @@ When the token has a transfer hook (SSS-2), a `compliance` property MUST provide
 
 When initialized with an SSS-Core program ID, a `core` property MUST provide:
 
-`initialize`, `grantRole`, `revokeRole`, `setMinterQuota`, `mintTokens`, `burnTokens`, `pause`, `unpause`, `freezeAccount`, `thawAccount`, `seize`, `transferAuthority`, `acceptAuthority`, `fetchConfig`, `fetchMinterInfo`, `refresh`, `getState`
+`initialize`, `grantRole`, `revokeRole`, `setMinterQuota`, `mintTokens`, `burnTokens`, `burnFrom`, `pause`, `unpause`, `freezeAccount`, `thawAccount`, `seize`, `transferAuthority`, `acceptAuthority`, `updateMetadata`, `setCompliance`, `fetchConfig`, `fetchMinterInfo`, `refresh`, `getState`. On-chain support for reserve attestation (`attest_reserve`, `view_reserve`) is available; SDK convenience methods may be added in a future release.
 
 ### 5.5 Unsigned Transaction Builders
 
@@ -277,35 +375,61 @@ For wallet adapter integration, the SDK SHOULD provide `build*Transaction` varia
 
 ## 6. CLI Interface
 
-Conforming CLI implementations MUST provide:
+Conforming CLI implementations MUST organize commands into logical groups:
 
 ```
 solana-stable init --preset <sss-1|sss-2>     Generate a config
 solana-stable init --custom <config.toml>      Deploy a mint
 
-solana-stable mint <recipient> <amount>        Mint tokens
-solana-stable burn <amount>                    Burn tokens
-solana-stable transfer <recipient> <amount>    Transfer (with hook support)
-solana-stable freeze <token-account>           Freeze account
-solana-stable thaw <token-account>             Thaw account
-solana-stable pause                            Global pause
-solana-stable unpause                          Resume
-solana-stable status                           Show token info
-solana-stable supply                           Show total supply
-solana-stable balance <wallet>                 Show wallet balance
-solana-stable set-authority <type> <pubkey>     Change authority
-solana-stable audit-log [--limit <n>]          Transaction history
+# Day-to-day operations
+solana-stable operate mint <recipient> <amount>
+solana-stable operate burn <amount>
+solana-stable operate transfer <recipient> <amount>
 
-# SSS-2 compliance
-solana-stable blacklist add <wallet>           Add to blacklist
-solana-stable blacklist remove <wallet>        Remove from blacklist
-solana-stable blacklist check <wallet>         Check status
-solana-stable blacklist close <wallet>         Close entry
-solana-stable blacklist transfer-admin <new>   Nominate new admin
-solana-stable blacklist accept-admin <keypair> Accept admin role
+# Admin operations
+solana-stable admin freeze <token-account>
+solana-stable admin thaw <token-account>
+solana-stable admin pause
+solana-stable admin unpause
+solana-stable admin set-authority <type> <pubkey>
+
+# Compliance (SSS-2)
+solana-stable compliance add <wallet> [--reason <text>]
+solana-stable compliance remove <wallet>
+solana-stable compliance check <wallet>
+solana-stable compliance close <wallet>
+solana-stable compliance transfer-admin <new>
+solana-stable compliance accept-admin <keypair>
+
+# Reserve attestation (proof-of-reserve)
+solana-stable attest reserve <amount> --source <text> --uri <url>
+
+# Read-only queries
+solana-stable inspect status
+solana-stable inspect supply
+solana-stable inspect balance <wallet>
+solana-stable inspect audit-log [--limit <n>]
+solana-stable inspect reserve
 ```
 
-All commands MUST accept `--config <path>` to specify a config file. Default is `sss-token.config.toml` in the working directory.
+### 6.1 Global Flags
+
+All commands MUST accept:
+
+- `--config <path>` — Config file path (default: `sss-token.config.toml`)
+- `--output text|json` — Output format
+- `--dry-run` — Build and display the transaction without sending
+- `--yes` — Skip confirmation prompts
+
+### 6.2 Backward Compatibility
+
+Flat commands (without the group prefix) MUST remain functional for backward compatibility:
+
+```
+solana-stable mint <recipient> <amount>     # equivalent to: solana-stable operate mint ...
+solana-stable freeze <token-account>        # equivalent to: solana-stable admin freeze ...
+solana-stable status                        # equivalent to: solana-stable inspect status
+```
 
 ---
 

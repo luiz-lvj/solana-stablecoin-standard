@@ -47,19 +47,19 @@ SSS-2 is a strict superset of SSS-1. Every SSS-1 operation works identically on 
 cd cli && npm install && npm run build
 
 # 1. Create a config file (SSS-1 preset)
-npx sss-token init --preset sss-1
+npx solana-stable init --preset sss-1
 # → creates sss-token.config.toml
 
 # 2. Edit the config: set authority keypair paths, name, symbol
 
 # 3. Deploy on-chain
-npx sss-token init --custom sss-token.config.toml
+npx solana-stable init --custom sss-token.config.toml
 # → deploys mint, writes mint address back into config
 
 # 4. Operate
-npx sss-token mint <recipient> 1000000
-npx sss-token supply
-npx sss-token status
+npx solana-stable mint <recipient> 1000000
+npx solana-stable supply
+npx solana-stable status
 ```
 
 ### Deploy with the SDK
@@ -121,7 +121,7 @@ npm run dev
               │              │              │
      ┌────────▼───────┐ ┌───▼────┐ ┌───────▼────────┐
      │  CLI            │ │  SDK   │ │  Backend        │
-     │  (sss-token)    │ │  (npm) │ │  (Express)      │
+     │  (solana-stable)│ │  (npm) │ │  (Express)      │
      │  Commander      │ │        │ │  - REST API     │
      │  TOML config    │ │        │ │  - Event listener│
      └────────┬────────┘ └───┬────┘ │  - Webhooks     │

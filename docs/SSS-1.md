@@ -32,6 +32,7 @@ These extensions are NOT required by SSS-1 but are compatible:
 |-----------|-------|
 | **Pausable** | Global pause. Useful as an emergency kill switch. |
 | **Permanent Delegate** | Irrevocable delegate over all token accounts. Enables seizure/recovery. Use with caution. |
+| **DefaultAccountState** | New token accounts are created frozen by default. Requires thaw before first transfer — useful for KYC-gated issuance. |
 
 ### On-Mint Metadata
 

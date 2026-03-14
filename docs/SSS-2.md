@@ -47,7 +47,7 @@ The blacklist hook is an Anchor program that must be deployed before the SSS-2 t
 |-------------|--------|-------------|
 | `initialize_config` | Admin (payer) | Creates the Config PDA |
 | `initialize_extra_account_meta_list` | Admin (payer) | Creates the ExtraAccountMetaList PDA |
-| `add_to_blacklist(wallet)` | Admin | Creates/updates a BlacklistEntry PDA, sets `blocked = true` |
+| `add_to_blacklist(wallet, reason)` | Admin | Creates/updates a BlacklistEntry PDA, sets `blocked = true`. `reason` is an optional string stored on-chain. |
 | `remove_from_blacklist(wallet)` | Admin | Updates a BlacklistEntry PDA, sets `blocked = false` |
 | `close_blacklist_entry(wallet)` | Admin | Closes an unblocked BlacklistEntry PDA, reclaims rent |
 | `transfer_admin(new_admin)` | Admin | Nominates a new admin (two-step) |
@@ -59,7 +59,7 @@ The blacklist hook is an Anchor program that must be deployed before the SSS-2 t
 | Event | Emitted When |
 |-------|-------------|
 | `ConfigInitialized` | Config PDA created |
-| `WalletBlacklisted` | Wallet added to blacklist |
+| `WalletBlacklisted` | Wallet added to blacklist. Includes `reason: String` field. |
 | `WalletUnblacklisted` | Wallet removed from blacklist |
 | `BlacklistEntryClosed` | Blacklist entry PDA closed |
 | `AdminTransferNominated` | New admin nominated |
@@ -81,7 +81,7 @@ The blacklist hook is an Anchor program that must be deployed before the SSS-2 t
 
 The blacklist uses **persistent PDAs with a boolean flag**:
 
-- `add_to_blacklist` uses `init_if_needed` — creates the PDA on first blacklist, sets `blocked = true` on subsequent calls.
+- `add_to_blacklist(wallet, reason)` uses `init_if_needed` — creates the PDA on first blacklist, sets `blocked = true` on subsequent calls. The `reason` string is stored on-chain and emitted in the `WalletBlacklisted` event.
 - `remove_from_blacklist` sets `blocked = false` but does NOT close the PDA.
 - `close_blacklist_entry` closes an unblocked PDA to reclaim rent. Cannot close a blocked entry.
 - **Missing PDAs are treated as "not blacklisted"** — wallets that were never added to the blacklist can transfer freely without pre-initialized PDAs.
@@ -118,9 +118,9 @@ SSS-2 tokens require `createTransferCheckedWithTransferHookInstruction` instead 
 
 | Operation | Who | CLI | SDK |
 |-----------|-----|-----|-----|
-| Add to blacklist | Admin | `sss-token blacklist add <wallet>` | `stable.compliance.blacklistAdd(wallet, admin)` |
-| Remove from blacklist | Admin | `sss-token blacklist remove <wallet>` | `stable.compliance.blacklistRemove(wallet, admin)` |
-| Check blacklist status | Anyone | `sss-token blacklist check <wallet>` | `stable.compliance.isBlacklisted(wallet)` |
+| Add to blacklist | Admin | `solana-stable blacklist add <wallet> --reason "OFAC SDN"` | `stable.compliance.blacklistAdd(wallet, admin, "OFAC SDN")` |
+| Remove from blacklist | Admin | `solana-stable blacklist remove <wallet>` | `stable.compliance.blacklistRemove(wallet, admin)` |
+| Check blacklist status | Anyone | `solana-stable blacklist check <wallet>` | `stable.compliance.isBlacklisted(wallet)` |
 | Close entry (reclaim rent) | Admin | — | `stable.compliance.closeBlacklistEntry(wallet, admin)` |
 | Transfer admin | Admin | — | `stable.compliance.transferAdmin(newAdmin, currentAdmin)` |
 | Accept admin | Pending admin | — | `stable.compliance.acceptAdmin(newAdmin)` |

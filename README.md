@@ -39,6 +39,8 @@ solana-stablecoin-standard/
 | **SSS-1** | Minimal stablecoin — mint/burn, freeze, on-mint metadata | Metadata Pointer |
 | **SSS-2** | SSS-1 + compliance — blacklist enforcement via transfer hook | Metadata Pointer, Transfer Hook |
 
+**SSS-Core features**: RBAC roles, per-minter quotas, supply cap, dual pause, metadata updates, compliance toggle, burn-from-any-account, and **reserve attestation** (proof-of-reserve for GENIUS Act compliance) — with a **feature-gated module system** (`compliance`, `quotas`, `supply-cap`) that lets issuers strip modules they don't need at compile time.
+
 See [docs/SSS-1.md](docs/SSS-1.md) and [docs/SSS-2.md](docs/SSS-2.md) for the full specifications.
 
 ## Quick Start
@@ -56,8 +58,12 @@ npx solana-stable init --preset sss-1
 npx solana-stable init --custom sss-token.config.toml
 
 # Mint tokens
+npx solana-stable operate mint <recipient-wallet> 1000000
+# or (flat, backward-compatible):
 npx solana-stable mint <recipient-wallet> 1000000
 ```
+
+The CLI organizes commands into groups: `operate` (mint/burn/transfer), `admin` (freeze/thaw/pause/set-authority), `compliance` (blacklist management), and `inspect` (status/supply/balance/audit-log). Flat commands still work for backward compatibility.
 
 ### 2. Integrate programmatically (SDK)
 

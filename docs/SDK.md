@@ -66,6 +66,34 @@ const compliant = await SolanaStablecoin.create(connection, {
 console.log("Compliance module:", compliant.compliance); // Compliance instance
 ```
 
+### Auto-Init SSS-Core
+
+When `ssCoreProgramId` is provided in `CreateOptions`, `create()` automatically initializes the SSS-Core `StablecoinConfig` PDA after deploying the mint. For SSS-2, `compliance_enabled` is set to `true` automatically.
+
+```typescript
+const coreProgramId = new PublicKey("4ZFzYcNVDSew79hSAVRdtDuMqe9g4vYh7CFvitPSy5DD");
+
+const stable = await SolanaStablecoin.create(connection, {
+  preset: Presets.SSS_2,
+  name: "Auto-Init Dollar",
+  symbol: "AIUSD",
+  decimals: 6,
+  authority,
+  ssCoreProgramId: coreProgramId,
+  supplyCap: 1_000_000_000_000n,  // optional supply cap
+  extensions: {
+    transferHook: {
+      programId: hookProgramId,
+    },
+  },
+});
+
+// stable.core is immediately available — no manual initialize() needed
+console.log("Config PDA:", stable.core.getState());
+```
+
+You can also pass `supplyCap` to set a maximum supply enforced on-chain by SSS-Core.
+
 ### Custom Configuration
 
 You can skip presets entirely and configure extensions individually:
@@ -84,6 +112,7 @@ const custom = await SolanaStablecoin.create(connection, {
     pausable: false,          // default: false
     permanentDelegate: false, // default: false
     transferHook: false,      // default: false
+    defaultAccountStateFrozen: false, // default: false — new accounts created frozen
   },
 });
 ```
@@ -247,8 +276,8 @@ This creates the Config PDA and ExtraAccountMetaList PDA on-chain.
 ### Blacklist Operations
 
 ```typescript
-// Add to blacklist
-await stable.compliance.blacklistAdd(walletPubkey, adminKeypair);
+// Add to blacklist (with optional reason for compliance audit trail)
+await stable.compliance.blacklistAdd(walletPubkey, adminKeypair, "OFAC SDN");
 
 // Remove from blacklist
 await stable.compliance.blacklistRemove(walletPubkey, adminKeypair);
@@ -287,9 +316,9 @@ const configPda2 = stable.compliance.getConfigPda();
 const blacklistPda2 = stable.compliance.getBlacklistPda(walletPubkey);
 ```
 
-## SSS-Core Module (RBAC, Quotas, Seize)
+## SSS-Core Module (RBAC, Quotas, Seize, Reserve Attestation)
 
-The `core` property is available when `ssCoreProgramId` is provided via `load()`. It exposes the on-chain SSS-Core program for RBAC-gated operations, per-minter quotas, supply caps, and protocol-level pause.
+The `core` property is available when `ssCoreProgramId` is provided via `load()`. It exposes the on-chain SSS-Core program for RBAC-gated operations, per-minter quotas, supply caps, protocol-level pause, and **reserve attestation** (proof-of-reserve). The on-chain program supports `attest_reserve` and `view_reserve` instructions; SDK convenience methods for these may be added in a future release.
 
 ```typescript
 const stable = SolanaStablecoin.load(connection, {
@@ -321,6 +350,7 @@ await stable.core.revokeRole(authority, minterPubkey, ROLE_MINTER);
 ```typescript
 await stable.core.mintTokens(minterKeypair, recipientAta, 100_000n);
 await stable.core.burnTokens(burnerKeypair, burnerAta, 50_000n);
+await stable.core.burnFrom(burnerKeypair, targetAta, 100_000n); // burn from any account (permanent delegate)
 await stable.core.freezeAccount(freezerKeypair, targetAta);
 await stable.core.thawAccount(freezerKeypair, targetAta);
 await stable.core.seize(seizerKeypair, targetAta, treasuryAta, 100_000n);
@@ -328,12 +358,45 @@ await stable.core.pause(pauserKeypair);
 await stable.core.unpause(pauserKeypair);
 ```
 
+### Update Metadata
+
+Update on-mint metadata fields (name, symbol, uri) via the authority:
+
+```typescript
+await stable.core.updateMetadata(authorityKeypair, "name", "New Token Name");
+await stable.core.updateMetadata(authorityKeypair, "symbol", "NTOK");
+await stable.core.updateMetadata(authorityKeypair, "uri", "https://example.com/metadata.json");
+```
+
+The `field` parameter must be one of `"name"`, `"symbol"`, or `"uri"`.
+
+### Toggle Compliance
+
+Enable or disable compliance enforcement (blacklist checks on mint):
+
+```typescript
+await stable.core.setCompliance(authorityKeypair, true);  // enable
+await stable.core.setCompliance(authorityKeypair, false); // disable
+```
+
+When enabled, `mint_tokens` checks the recipient's blacklist entry and rejects minting to blocked wallets.
+
+### Burn From (Permanent Delegate)
+
+Unlike `burnTokens` which can only burn from the burner's own ATA, `burnFrom` uses the permanent delegate to burn from **any** holder's account:
+
+```typescript
+await stable.core.burnFrom(burnerKeypair, targetAta, 50_000n);
+```
+
+Requires `ROLE_BURNER`.
+
 ### State Caching
 
 ```typescript
 await stable.core.refresh();
 const config = stable.core.getState();
-// { authority, pendingAuthority, mint, preset, paused, totalMinted, totalBurned, supplyCap, bump }
+// { authority, pendingAuthority, mint, preset, paused, complianceEnabled, totalMinted, totalBurned, supplyCap, bump }
 
 const minterInfo = await stable.core.fetchMinterInfo(minterPubkey);
 // { config, minter, quota, totalMinted, isActive, bump }
@@ -383,6 +446,8 @@ interface CreateOptions {
   freezeAuthority?: Keypair | PublicKey;
   metadataAuthority?: Keypair | PublicKey;
   extensions?: ExtensionsConfig;
+  ssCoreProgramId?: PublicKey;    // when set, auto-initializes SSS-Core config PDA
+  supplyCap?: bigint;            // optional supply cap for SSS-Core (requires ssCoreProgramId)
 }
 
 interface LoadOptions {
