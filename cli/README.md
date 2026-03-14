@@ -17,6 +17,8 @@ The binary is available as both `solana-stable` (preferred) and `sss-token` (leg
 - [Tutorial: Deploy with blacklist (SSS-2)](#tutorial-deploy-with-blacklist-sss-2)
 - [Tutorial: Manage an existing stablecoin](#tutorial-manage-an-existing-stablecoin)
 - [Configuration reference](#configuration-reference)
+- [Command groups](#command-groups)
+- [Global flags](#global-flags)
 - [Commands reference](#commands-reference)
 - [Updating authorities](#updating-authorities)
 
@@ -180,7 +182,7 @@ The CLI will:
 
 ```bash
 # Block a wallet from sending or receiving the stablecoin
-solana-stable blacklist add <wallet-address>
+solana-stable blacklist add <wallet-address> --reason "OFAC SDN"
 
 # Unblock a wallet
 solana-stable blacklist remove <wallet-address>
@@ -260,6 +262,59 @@ See `example.config.toml` for a full sample.
 
 ---
 
+## Command groups
+
+The CLI organizes commands into four logical groups:
+
+| Group | Commands | Purpose |
+|-------|----------|---------|
+| `operate` | `mint`, `burn`, `transfer` | Day-to-day token operations |
+| `admin` | `freeze`, `thaw`, `pause`, `unpause`, `set-authority` | Admin operations |
+| `compliance` | `add`, `remove`, `check`, `close`, `transfer-admin`, `accept-admin` | Blacklist management (SSS-2) |
+| `inspect` | `status`, `supply`, `balance`, `audit-log` | Read-only queries |
+
+**Grouped usage:**
+
+```bash
+solana-stable operate mint <recipient> <amount>
+solana-stable admin freeze <token-account>
+solana-stable compliance add <wallet> --reason "OFAC SDN"
+solana-stable inspect status
+```
+
+**Flat usage (backward-compatible):**
+
+All commands also work without the group prefix for backward compatibility:
+
+```bash
+solana-stable mint <recipient> <amount>       # = operate mint
+solana-stable freeze <token-account>          # = admin freeze
+solana-stable blacklist add <wallet>          # = compliance add
+solana-stable status                          # = inspect status
+```
+
+---
+
+## Global flags
+
+All commands accept the following flags:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--config <path>` | Path to config TOML file | `sss-token.config.toml` |
+| `--output text\|json` | Output format | `text` |
+| `--dry-run` | Build and display transaction without sending | off |
+| `--yes` | Skip confirmation prompts | off |
+
+Examples:
+
+```bash
+solana-stable operate mint <recipient> 1000000 --dry-run --output json
+solana-stable admin freeze <ata> --config custom.toml --yes
+```
+
+---
+
 ## Commands reference
 
 ### `init` -- Create config or deploy mint
@@ -277,10 +332,11 @@ solana-stable init --custom <path-to-config.toml>
 
 ---
 
-### `mint` -- Mint tokens to a recipient
+### `operate mint` -- Mint tokens to a recipient
 
 ```bash
-solana-stable mint <recipient> <amount> [--config <path>]
+solana-stable operate mint <recipient> <amount>
+solana-stable mint <recipient> <amount>           # flat alias
 ```
 
 - **`<recipient>`** -- Solana wallet address (base58). Creates the ATA if it doesn't exist.
@@ -288,20 +344,22 @@ solana-stable mint <recipient> <amount> [--config <path>]
 
 ---
 
-### `burn` -- Burn tokens
+### `operate burn` -- Burn tokens
 
 ```bash
-solana-stable burn <amount> [--config <path>]
+solana-stable operate burn <amount>
+solana-stable burn <amount>                       # flat alias
 ```
 
 Burns `<amount>` (raw units) from the **mint authority's** token account.
 
 ---
 
-### `transfer` -- Transfer tokens to a recipient
+### `operate transfer` -- Transfer tokens to a recipient
 
 ```bash
-solana-stable transfer <recipient> <amount> [--config <path>]
+solana-stable operate transfer <recipient> <amount>
+solana-stable transfer <recipient> <amount>       # flat alias
 ```
 
 - **`<recipient>`** -- Destination wallet address (base58). Creates the ATA if it doesn't exist.
@@ -311,118 +369,136 @@ Uses `TransferChecked` with automatic transfer-hook account resolution — works
 
 ---
 
-### `freeze` / `thaw` -- Freeze or unfreeze a token account
+### `admin freeze` / `admin thaw` -- Freeze or unfreeze a token account
 
 ```bash
-solana-stable freeze <address> [--config <path>]
-solana-stable thaw <address> [--config <path>]
+solana-stable admin freeze <address>
+solana-stable admin thaw <address>
+solana-stable freeze <address>                    # flat alias
+solana-stable thaw <address>                      # flat alias
 ```
 
 - **`<address>`** -- The **token account** (not the wallet) to freeze or thaw.
 
 ---
 
-### `pause` / `unpause` -- Pause or resume (Token-2022 Pausable)
+### `admin pause` / `admin unpause` -- Pause or resume (Token-2022 Pausable)
 
 ```bash
-solana-stable pause [--config <path>]
-solana-stable unpause [--config <path>]
+solana-stable admin pause
+solana-stable admin unpause
+solana-stable pause                               # flat alias
+solana-stable unpause                             # flat alias
 ```
 
 Only applies to mints with the Token-2022 **Pausable** extension.
 
 ---
 
-### `blacklist` -- Manage the transfer-hook blacklist (SSS-2)
+### `compliance` -- Manage the transfer-hook blacklist (SSS-2)
 
 These commands interact with the on-chain blacklist Anchor program. They require:
 - `[extensions.transferHook] enabled = true` and a valid `programId` in the config.
 - `[authorities] blacklist` pointing to the blacklist admin keypair.
 
-#### `blacklist add` -- Block a wallet
+The `compliance` group replaces the old `blacklist` prefix. Both work for backward compatibility.
+
+#### `compliance add` -- Block a wallet
 
 ```bash
-solana-stable blacklist add <wallet> [--config <path>]
+solana-stable compliance add <wallet> [--reason <text>]
+solana-stable blacklist add <wallet> [--reason <text>]   # flat alias
 ```
+
+- **`--reason <text>`** -- Optional human-readable reason for the blacklist action (e.g. `"OFAC SDN"`, `"AML investigation"`). Stored on-chain in the BlacklistEntry PDA and emitted in the `WalletBlacklisted` event.
 
 Adds the wallet to the blacklist. Future transfers to or from this wallet will be rejected by the transfer hook. If the wallet has never been blacklisted before, a new on-chain PDA is created. If it was previously unblacklisted, the existing PDA is updated.
 
-#### `blacklist remove` -- Unblock a wallet
+#### `compliance remove` -- Unblock a wallet
 
 ```bash
-solana-stable blacklist remove <wallet> [--config <path>]
+solana-stable compliance remove <wallet>
+solana-stable blacklist remove <wallet>                  # flat alias
 ```
 
 Sets the wallet's blacklist entry to `blocked = false`. The PDA remains on-chain so the transfer hook can still resolve it, but transfers are allowed again.
 
-#### `blacklist check` -- Query blacklist status
+#### `compliance check` -- Query blacklist status
 
 ```bash
-solana-stable blacklist check <wallet> [--config <path>]
+solana-stable compliance check <wallet>
+solana-stable blacklist check <wallet>                   # flat alias
 ```
 
 Reads the wallet's blacklist PDA and prints whether it is currently blocked. This is a **read-only** operation (no transaction, no authority needed).
 
-#### `blacklist close` -- Reclaim rent for an unblocked entry
+#### `compliance close` -- Reclaim rent for an unblocked entry
 
 ```bash
-solana-stable blacklist close <wallet> [--config <path>]
+solana-stable compliance close <wallet>
+solana-stable blacklist close <wallet>                   # flat alias
 ```
 
-Closes the BlacklistEntry PDA for a wallet that has `blocked = false`, reclaiming rent to the admin. Fails if the entry is still blocked — you must `blacklist remove` first.
+Closes the BlacklistEntry PDA for a wallet that has `blocked = false`, reclaiming rent to the admin. Fails if the entry is still blocked — you must `compliance remove` first.
 
-#### `blacklist transfer-admin` -- Nominate a new admin
+#### `compliance transfer-admin` -- Nominate a new admin
 
 ```bash
-solana-stable blacklist transfer-admin <new-admin-pubkey> [--config <path>]
+solana-stable compliance transfer-admin <new-admin-pubkey>
+solana-stable blacklist transfer-admin <new-admin-pubkey>  # flat alias
 ```
 
 Initiates a two-step admin transfer. The nominated admin must call `accept-admin` to finalize. The current admin remains active until the transfer is accepted.
 
-#### `blacklist accept-admin` -- Accept admin role
+#### `compliance accept-admin` -- Accept admin role
 
 ```bash
-solana-stable blacklist accept-admin <keypair-path> [--config <path>]
+solana-stable compliance accept-admin <keypair-path>
+solana-stable blacklist accept-admin <keypair-path>      # flat alias
 ```
 
 Accepts a pending admin nomination. `<keypair-path>` is the path to the nominated admin's keypair JSON file. After acceptance, update your config's `[authorities] blacklist` to the new keypair path.
 
 ---
 
-### `status` -- Token and supply snapshot
+### `inspect status` -- Token and supply snapshot
 
 ```bash
-solana-stable status [--config <path>]
+solana-stable inspect status
+solana-stable status                              # flat alias
 ```
 
 Prints config (standard, cluster, mint) and on-chain info: supply, decimals, and current mint/freeze authorities.
 
 ---
 
-### `supply` -- Total supply only
+### `inspect supply` -- Total supply only
 
 ```bash
-solana-stable supply [--config <path>]
+solana-stable inspect supply
+solana-stable supply                              # flat alias
 ```
 
 Prints the current total supply (raw and human-readable) for the configured mint.
 
 ---
 
-### `balance` -- Balance of an address
+### `inspect balance` -- Balance of an address
 
 ```bash
-solana-stable balance <address> [--config <path>]
+solana-stable inspect balance <address>
+solana-stable balance <address>                   # flat alias
 ```
 
 - **`<address>`** -- Wallet address (base58). The CLI resolves the ATA and prints its balance.
 
 ---
 
-### `set-authority` -- Update an authority
+### `admin set-authority` -- Update an authority
 
 ```bash
-solana-stable set-authority <type> <new-authority> [--config <path>]
+solana-stable admin set-authority <type> <new-authority>
+solana-stable set-authority <type> <new-authority>  # flat alias
 ```
 
 - **`<type>`** -- One of: `mint`, `freeze`, `metadata`, `metadata-pointer`, `pause`, `permanent-delegate`, `transfer-fee-config`, `close-mint`, `interest-rate`.
@@ -431,16 +507,17 @@ solana-stable set-authority <type> <new-authority> [--config <path>]
 Examples:
 
 ```bash
-solana-stable set-authority mint 9abc...xyz
-solana-stable set-authority freeze none
+solana-stable admin set-authority mint 9abc...xyz
+solana-stable admin set-authority freeze none
 ```
 
 ---
 
-### `audit-log` -- Recent transactions for the mint
+### `inspect audit-log` -- Recent transactions for the mint
 
 ```bash
-solana-stable audit-log [--limit <n>] [--config <path>] [--action <type>]
+solana-stable inspect audit-log [--limit <n>] [--action <type>]
+solana-stable audit-log [--limit <n>]             # flat alias
 ```
 
 - **`--limit <n>`** -- How many recent signatures to fetch (default `20`, max `1000`).

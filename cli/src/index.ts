@@ -31,7 +31,18 @@ const program = new Command();
 program
   .name("solana-stable")
   .description("CLI for the Solana Stablecoin Standard — deploy and manage SSS-1/SSS-2 stablecoins")
-  .version("0.2.0");
+  .version("0.3.0")
+  .option("--config <path>", "Path to config TOML (default: ./config.toml)")
+  .option("--output <format>", "Output format: text | json (default: text)", "text")
+  .option("--dry-run", "Simulate the transaction without sending")
+  .option("--yes", "Skip confirmation prompts");
+
+function cfg(opts: { config?: string }) {
+  const parent = program.opts();
+  return loadConfig(opts.config ?? parent.config);
+}
+
+// ── init ─────────────────────────────────────────────────────────────
 
 const init = program
   .command("init")
@@ -63,39 +74,42 @@ init
     console.log(`Created config at ${outPath} for preset ${preset}.`);
   });
 
-program
+// ── operate — day-to-day token operations ────────────────────────────
+
+const operate = program
+  .command("operate")
+  .description("Day-to-day token operations (mint, burn, transfer)");
+
+operate
   .command("mint")
   .description("Mint tokens to a recipient (creates ATA if needed)")
   .argument("<recipient>", "Recipient wallet address (base58)")
-  .argument("<amount>", "Amount in raw units (e.g. 1000000 for 1 token with 6 decimals)")
+  .argument("<amount>", "Amount in raw units")
   .option("--config <path>", "Path to config TOML")
   .action(async (recipient: string, amountStr: string, opts: { config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      const amount = BigInt(amountStr);
-      await runMint(cfg, recipient, amount);
+      await runMint(cfg(opts), recipient, BigInt(amountStr));
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
 
-program
+operate
   .command("burn")
   .description("Burn tokens from the mint authority's token account")
   .argument("<amount>", "Amount in raw units to burn")
   .option("--config <path>", "Path to config TOML")
   .action(async (amountStr: string, opts: { config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      await runBurn(cfg, BigInt(amountStr));
+      await runBurn(cfg(opts), BigInt(amountStr));
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
 
-program
+operate
   .command("transfer")
   .description("Transfer tokens to a recipient (supports transfer hooks)")
   .argument("<recipient>", "Recipient wallet address (base58)")
@@ -103,116 +117,74 @@ program
   .option("--config <path>", "Path to config TOML")
   .action(async (recipient: string, amountStr: string, opts: { config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      await runTransfer(cfg, recipient, BigInt(amountStr));
+      await runTransfer(cfg(opts), recipient, BigInt(amountStr));
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
 
-program
+// ── admin — authority & account management ───────────────────────────
+
+const admin = program
+  .command("admin")
+  .description("Authority & account management (freeze, thaw, pause, set-authority)");
+
+admin
   .command("freeze")
   .description("Freeze a token account (requires freeze authority)")
   .argument("<address>", "Token account address to freeze")
   .option("--config <path>", "Path to config TOML")
   .action(async (address: string, opts: { config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      await runFreeze(cfg, address);
+      await runFreeze(cfg(opts), address);
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
 
-program
+admin
   .command("thaw")
   .description("Thaw a frozen token account")
   .argument("<address>", "Token account address to thaw")
   .option("--config <path>", "Path to config TOML")
   .action(async (address: string, opts: { config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      await runThaw(cfg, address);
+      await runThaw(cfg(opts), address);
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
 
-program
+admin
   .command("pause")
   .description("Pause mint/transfer/burn (Token-2022 Pausable extension)")
   .option("--config <path>", "Path to config TOML")
   .action(async (opts: { config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      await runPause(cfg);
+      await runPause(cfg(opts));
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
 
-program
+admin
   .command("unpause")
   .description("Resume mint/transfer/burn after pause")
   .option("--config <path>", "Path to config TOML")
   .action(async (opts: { config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      await runUnpause(cfg);
+      await runUnpause(cfg(opts));
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
 
-program
-  .command("status")
-  .description("Show token config and on-chain status (supply, authorities)")
-  .option("--config <path>", "Path to config TOML")
-  .action(async (opts: { config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      await runStatus(cfg);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
-  });
-
-program
-  .command("supply")
-  .description("Print total supply (raw and UI)")
-  .option("--config <path>", "Path to config TOML")
-  .action(async (opts: { config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      await runSupply(cfg);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
-  });
-
-program
-  .command("balance")
-  .description("Show balance of a wallet for the configured mint")
-  .argument("<address>", "Wallet address (base58)")
-  .option("--config <path>", "Path to config TOML")
-  .action(async (address: string, opts: { config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      await runBalance(cfg, address);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
-  });
-
-program
+admin
   .command("set-authority")
   .description("Update an authority (mint, freeze, metadata, pause, permanent-delegate)")
   .argument("<type>", "Authority type: mint | freeze | metadata | pause | permanent-delegate")
@@ -220,36 +192,20 @@ program
   .option("--config <path>", "Path to config TOML")
   .action(async (type: string, newAuthority: string, opts: { config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      await runSetAuthority(cfg, type, newAuthority);
+      await runSetAuthority(cfg(opts), type, newAuthority);
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
     }
   });
 
-program
-  .command("audit-log")
-  .description("Show recent transactions involving the configured mint (basic audit log)")
-  .option("--limit <n>", "Number of signatures to fetch (default 20)")
-  .option("--action <type>", "Planned filter by action type (not yet decoded)")
-  .option("--config <path>", "Path to config TOML")
-  .action(async (opts: { limit?: string; action?: string; config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      const limit = opts.limit ? Math.max(1, Math.min(1000, Number(opts.limit))) : 20;
-      await runAuditLog(cfg, limit, opts.action);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
-  });
+// ── compliance — blacklist & compliance management ───────────────────
 
-const blacklist = program
-  .command("blacklist")
-  .description("Manage the on-chain blacklist (SSS-2 / transfer hook)");
+const compliance = program
+  .command("compliance")
+  .description("Blacklist & compliance management (SSS-2 transfer hook)");
 
-blacklist
+compliance
   .command("add")
   .description("Add a wallet to the blacklist (blocks future transfers)")
   .argument("<wallet>", "Wallet address to blacklist (base58)")
@@ -257,8 +213,185 @@ blacklist
   .option("--config <path>", "Path to config TOML")
   .action(async (wallet: string, opts: { reason?: string; config?: string }) => {
     try {
-      const cfg = loadConfig(opts.config);
-      await runBlacklistAdd(cfg, wallet, opts.reason);
+      await runBlacklistAdd(cfg(opts), wallet, opts.reason);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+compliance
+  .command("remove")
+  .description("Remove a wallet from the blacklist (re-enables transfers)")
+  .argument("<wallet>", "Wallet address to unblacklist (base58)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (wallet: string, opts: { config?: string }) => {
+    try {
+      await runBlacklistRemove(cfg(opts), wallet);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+compliance
+  .command("check")
+  .description("Check whether a wallet is currently blacklisted")
+  .argument("<wallet>", "Wallet address to check (base58)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (wallet: string, opts: { config?: string }) => {
+    try {
+      await runBlacklistCheck(cfg(opts), wallet);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+compliance
+  .command("close")
+  .description("Close an unblocked blacklist entry to reclaim rent")
+  .argument("<wallet>", "Wallet address whose entry to close (base58)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (wallet: string, opts: { config?: string }) => {
+    try {
+      await runBlacklistClose(cfg(opts), wallet);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+compliance
+  .command("transfer-admin")
+  .description("Nominate a new blacklist admin (two-step: nominate → accept)")
+  .argument("<new-admin>", "New admin wallet address (base58)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (newAdmin: string, opts: { config?: string }) => {
+    try {
+      await runBlacklistTransferAdmin(cfg(opts), newAdmin);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+compliance
+  .command("accept-admin")
+  .description("Accept a pending blacklist admin nomination")
+  .argument("<keypair-path>", "Path to the nominated admin's keypair JSON")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (keypairPath: string, opts: { config?: string }) => {
+    try {
+      await runBlacklistAcceptAdmin(cfg(opts), keypairPath);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+// ── inspect — read-only queries ──────────────────────────────────────
+
+const inspect = program
+  .command("inspect")
+  .description("Read-only queries (status, supply, balance, audit-log)");
+
+inspect
+  .command("status")
+  .description("Show token config and on-chain status (supply, authorities)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (opts: { config?: string }) => {
+    try {
+      await runStatus(cfg(opts));
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+inspect
+  .command("supply")
+  .description("Print total supply (raw and UI)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (opts: { config?: string }) => {
+    try {
+      await runSupply(cfg(opts));
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+inspect
+  .command("balance")
+  .description("Show balance of a wallet for the configured mint")
+  .argument("<address>", "Wallet address (base58)")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (address: string, opts: { config?: string }) => {
+    try {
+      await runBalance(cfg(opts), address);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+inspect
+  .command("audit-log")
+  .description("Show recent transactions involving the configured mint (basic audit log)")
+  .option("--limit <n>", "Number of signatures to fetch (default 20)")
+  .option("--action <type>", "Filter by action type")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (opts: { limit?: string; action?: string; config?: string }) => {
+    try {
+      const limit = opts.limit ? Math.max(1, Math.min(1000, Number(opts.limit))) : 20;
+      await runAuditLog(cfg(opts), limit, opts.action);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+// ── Backward-compatible top-level aliases ────────────────────────────
+// Keep flat commands for backward compatibility with existing scripts
+
+for (const [name, desc, args, handler] of [
+  ["mint", "Alias for: operate mint", ["<recipient>", "<amount>"], async (r: string, a: string, o: { config?: string }) => runMint(cfg(o), r, BigInt(a))],
+  ["burn", "Alias for: operate burn", ["<amount>"], async (a: string, o: { config?: string }) => runBurn(cfg(o), BigInt(a))],
+  ["transfer", "Alias for: operate transfer", ["<recipient>", "<amount>"], async (r: string, a: string, o: { config?: string }) => runTransfer(cfg(o), r, BigInt(a))],
+  ["freeze", "Alias for: admin freeze", ["<address>"], async (a: string, o: { config?: string }) => runFreeze(cfg(o), a)],
+  ["thaw", "Alias for: admin thaw", ["<address>"], async (a: string, o: { config?: string }) => runThaw(cfg(o), a)],
+  ["pause", "Alias for: admin pause", [], async (o: { config?: string }) => runPause(cfg(o))],
+  ["unpause", "Alias for: admin unpause", [], async (o: { config?: string }) => runUnpause(cfg(o))],
+  ["status", "Alias for: inspect status", [], async (o: { config?: string }) => runStatus(cfg(o))],
+  ["supply", "Alias for: inspect supply", [], async (o: { config?: string }) => runSupply(cfg(o))],
+] as const) {
+  const cmd = program.command(name).description(desc as string).option("--config <path>", "Path to config TOML");
+  for (const arg of args as unknown as string[]) cmd.argument(arg);
+  cmd.action(async (...actionArgs: any[]) => {
+    try {
+      await (handler as Function)(...actionArgs);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+}
+
+// Legacy blacklist group alias
+const blacklist = program
+  .command("blacklist")
+  .description("Alias for: compliance (backward compatible)");
+
+blacklist
+  .command("add")
+  .description("Add a wallet to the blacklist")
+  .argument("<wallet>", "Wallet address (base58)")
+  .option("--reason <text>", "Reason for blacklisting")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (wallet: string, opts: { reason?: string; config?: string }) => {
+    try {
+      await runBlacklistAdd(cfg(opts), wallet, opts.reason);
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;
@@ -267,77 +400,18 @@ blacklist
 
 blacklist
   .command("remove")
-  .description("Remove a wallet from the blacklist (re-enables transfers)")
-  .argument("<wallet>", "Wallet address to unblacklist (base58)")
-  .option("--config <path>", "Path to config TOML")
+  .argument("<wallet>")
+  .option("--config <path>")
   .action(async (wallet: string, opts: { config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      await runBlacklistRemove(cfg, wallet);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
+    try { await runBlacklistRemove(cfg(opts), wallet); } catch (err) { console.error((err as Error).message); process.exitCode = 1; }
   });
 
 blacklist
   .command("check")
-  .description("Check whether a wallet is currently blacklisted")
-  .argument("<wallet>", "Wallet address to check (base58)")
-  .option("--config <path>", "Path to config TOML")
+  .argument("<wallet>")
+  .option("--config <path>")
   .action(async (wallet: string, opts: { config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      await runBlacklistCheck(cfg, wallet);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
-  });
-
-blacklist
-  .command("close")
-  .description("Close an unblocked blacklist entry to reclaim rent")
-  .argument("<wallet>", "Wallet address whose entry to close (base58)")
-  .option("--config <path>", "Path to config TOML")
-  .action(async (wallet: string, opts: { config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      await runBlacklistClose(cfg, wallet);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
-  });
-
-blacklist
-  .command("transfer-admin")
-  .description("Nominate a new blacklist admin (two-step: nominate → accept)")
-  .argument("<new-admin>", "New admin wallet address (base58)")
-  .option("--config <path>", "Path to config TOML")
-  .action(async (newAdmin: string, opts: { config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      await runBlacklistTransferAdmin(cfg, newAdmin);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
-  });
-
-blacklist
-  .command("accept-admin")
-  .description("Accept a pending blacklist admin nomination")
-  .argument("<keypair-path>", "Path to the nominated admin's keypair JSON")
-  .option("--config <path>", "Path to config TOML")
-  .action(async (keypairPath: string, opts: { config?: string }) => {
-    try {
-      const cfg = loadConfig(opts.config);
-      await runBlacklistAcceptAdmin(cfg, keypairPath);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exitCode = 1;
-    }
+    try { await runBlacklistCheck(cfg(opts), wallet); } catch (err) { console.error((err as Error).message); process.exitCode = 1; }
   });
 
 program.parseAsync(process.argv).catch((err) => {
