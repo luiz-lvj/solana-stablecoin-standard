@@ -25,6 +25,7 @@ import {
   runBlacklistAcceptAdmin,
   runBlacklistCheck,
 } from "./stablecoin/blacklist";
+import { setOutputFormat } from "./output";
 
 const program = new Command();
 
@@ -35,7 +36,14 @@ program
   .option("--config <path>", "Path to config TOML (default: ./config.toml)")
   .option("--output <format>", "Output format: text | json (default: text)", "text")
   .option("--dry-run", "Simulate the transaction without sending")
-  .option("--yes", "Skip confirmation prompts");
+  .option("--yes", "Skip confirmation prompts")
+  .hook("preAction", () => {
+    const globalOpts = program.opts();
+    setOutputFormat(globalOpts.output ?? "text");
+    if (globalOpts.dryRun) {
+      process.env.SSS_DRY_RUN = "1";
+    }
+  });
 
 function cfg(opts: { config?: string }) {
   const parent = program.opts();

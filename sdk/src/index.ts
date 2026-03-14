@@ -12,6 +12,7 @@ export {
   ROLE_PAUSER,
   ROLE_BLACKLISTER,
   ROLE_SEIZER,
+  ROLE_ATTESTOR,
 } from "./core";
 export { Presets } from "./types";
 

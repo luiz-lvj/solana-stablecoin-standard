@@ -21,6 +21,7 @@ export const ROLE_FREEZER = 2;
 export const ROLE_PAUSER = 3;
 export const ROLE_BLACKLISTER = 4;
 export const ROLE_SEIZER = 5;
+export const ROLE_ATTESTOR = 6;
 
 // ── PDA Helpers (standalone, exported) ───────────────────────────────
 

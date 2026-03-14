@@ -2,6 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { SolanaStablecoin, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "sss-token-sdk";
 import { getConnection, loadKeypair } from "../solana-helpers";
 import type { SssConfig } from "../config";
+import { printResult, printTx, getOutputFormat } from "../output";
 
 function getProgramId(cfg: SssConfig): PublicKey {
   return cfg.stablecoin.tokenProgram === "spl-token-2022"
@@ -46,8 +47,7 @@ export async function runMint(
     amount: amountRaw,
     minter: payer,
   });
-  console.log("Minted:", amountRaw.toString(), "raw units to", recipientStr);
-  console.log("Tx:", sig);
+  printTx("Minted", { amount: amountRaw.toString(), recipient: recipientStr, tx: sig });
 }
 
 export async function runTransfer(
@@ -66,8 +66,7 @@ export async function runTransfer(
     amount: amountRaw,
     decimals,
   });
-  console.log("Transferred:", amountRaw.toString(), "raw units to", recipientStr);
-  console.log("Tx:", sig);
+  printTx("Transferred", { amount: amountRaw.toString(), recipient: recipientStr, tx: sig });
 }
 
 export async function runBurn(cfg: SssConfig, amountRaw: bigint): Promise<void> {
@@ -78,8 +77,7 @@ export async function runBurn(cfg: SssConfig, amountRaw: bigint): Promise<void> 
     amount: amountRaw,
     owner: payer,
   });
-  console.log("Burned:", amountRaw.toString(), "raw units");
-  console.log("Tx:", sig);
+  printTx("Burned", { amount: amountRaw.toString(), tx: sig });
 }
 
 export async function runFreeze(cfg: SssConfig, tokenAccountStr: string): Promise<void> {
@@ -91,8 +89,7 @@ export async function runFreeze(cfg: SssConfig, tokenAccountStr: string): Promis
     tokenAccount,
     freezeAuthority: payer,
   });
-  console.log("Froze token account:", tokenAccountStr);
-  console.log("Tx:", sig);
+  printTx("Froze", { tokenAccount: tokenAccountStr, tx: sig });
 }
 
 export async function runThaw(cfg: SssConfig, tokenAccountStr: string): Promise<void> {
@@ -104,8 +101,7 @@ export async function runThaw(cfg: SssConfig, tokenAccountStr: string): Promise<
     tokenAccount,
     freezeAuthority: payer,
   });
-  console.log("Thawed token account:", tokenAccountStr);
-  console.log("Tx:", sig);
+  printTx("Thawed", { tokenAccount: tokenAccountStr, tx: sig });
 }
 
 export async function runPause(cfg: SssConfig): Promise<void> {
@@ -119,8 +115,7 @@ export async function runPause(cfg: SssConfig): Promise<void> {
   const payer = loadKeypair(pausePath);
 
   const sig = await stable.pause(payer);
-  console.log("Paused mint:", requireMint(cfg).toBase58());
-  console.log("Tx:", sig);
+  printTx("Paused", { mint: requireMint(cfg).toBase58(), tx: sig });
 }
 
 export async function runUnpause(cfg: SssConfig): Promise<void> {
@@ -134,32 +129,35 @@ export async function runUnpause(cfg: SssConfig): Promise<void> {
   const payer = loadKeypair(pausePath);
 
   const sig = await stable.unpause(payer);
-  console.log("Unpaused mint:", requireMint(cfg).toBase58());
-  console.log("Tx:", sig);
+  printTx("Unpaused", { mint: requireMint(cfg).toBase58(), tx: sig });
 }
 
 export async function runStatus(cfg: SssConfig): Promise<void> {
   const stable = loadStablecoin(cfg);
   const status = await stable.getStatus();
 
-  console.log("Standard:", cfg.standard);
-  console.log("Cluster:", cfg.cluster);
-  console.log("Mint:", status.mint.toBase58());
-  console.log("Token program:", cfg.stablecoin.tokenProgram);
-  console.log("Authorities (config): mint:", cfg.authorities.mint, "freeze:", cfg.authorities.freeze, "metadata:", cfg.authorities.metadata);
-  console.log("Supply (raw):", status.supply.raw.toString());
-  console.log("Supply (UI):", status.supply.uiAmountString);
-  console.log("Decimals:", status.supply.decimals);
-  console.log("Mint authority:", status.mintAuthority?.toBase58() ?? "none");
-  console.log("Freeze authority:", status.freezeAuthority?.toBase58() ?? "none");
+  printResult({
+    standard: cfg.standard,
+    cluster: cfg.cluster,
+    mint: status.mint.toBase58(),
+    tokenProgram: cfg.stablecoin.tokenProgram,
+    supplyRaw: status.supply.raw.toString(),
+    supplyUi: status.supply.uiAmountString,
+    decimals: status.supply.decimals,
+    mintAuthority: status.mintAuthority?.toBase58() ?? "none",
+    freezeAuthority: status.freezeAuthority?.toBase58() ?? "none",
+  });
 }
 
 export async function runSupply(cfg: SssConfig): Promise<void> {
   const stable = loadStablecoin(cfg);
   const supply = await stable.getSupply();
 
-  console.log("Supply (raw):", supply.raw.toString());
-  console.log("Supply (UI):", supply.uiAmountString);
+  printResult({
+    raw: supply.raw.toString(),
+    ui: supply.uiAmountString,
+    decimals: supply.decimals,
+  });
 }
 
 export async function runBalance(cfg: SssConfig, walletStr: string): Promise<void> {
@@ -167,9 +165,13 @@ export async function runBalance(cfg: SssConfig, walletStr: string): Promise<voi
   const wallet = new PublicKey(walletStr);
   const balance = await stable.getBalance(wallet);
 
-  console.log("Token account (ATA):", balance.ata.toBase58());
-  console.log("Balance (raw):", balance.raw.toString());
-  console.log("Balance (UI):", balance.uiAmountString);
+  printResult({
+    wallet: walletStr,
+    ata: balance.ata.toBase58(),
+    raw: balance.raw.toString(),
+    ui: balance.uiAmountString,
+    exists: balance.exists,
+  });
 }
 
 export async function runSetAuthority(
@@ -191,8 +193,7 @@ export async function runSetAuthority(
     currentAuthority,
     newAuthority,
   });
-  console.log("Authority updated:", type, "->", newAuthority?.toBase58() ?? "none");
-  console.log("Tx:", sig);
+  printTx("Authority updated", { type, newAuthority: newAuthority?.toBase58() ?? "none", tx: sig });
 }
 
 export async function runAuditLog(
@@ -202,6 +203,17 @@ export async function runAuditLog(
 ): Promise<void> {
   const stable = loadStablecoin(cfg);
   const entries = await stable.getAuditLog(limit);
+
+  if (getOutputFormat() === "json") {
+    const data = entries.map((e) => ({
+      signature: e.signature,
+      slot: e.slot,
+      err: e.err ?? null,
+      blockTime: e.blockTime?.toISOString() ?? null,
+    }));
+    console.log(JSON.stringify({ mint: stable.mint.toBase58(), entries: data }, null, 2));
+    return;
+  }
 
   console.log(
     `Last ${entries.length} transactions involving mint ${stable.mint.toBase58()}` +
