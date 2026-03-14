@@ -2,7 +2,7 @@
 
 A Token-2022 **transfer-hook** program written in Anchor. The hook is invoked automatically on every `transferChecked` call and blocks the transfer if the source wallet owner or destination wallet owner is present in an on-chain blacklist for that mint.
 
-This program powers the **SSS-2** profile of the [Solana Stablecoin Standard](https://superteam.fun/earn/listing/build-the-solana-stablecoin-standard-bounty) and is managed through the [`sss-token` CLI](../../cli/README.md).
+This program powers the **SSS-2** profile of the [Solana Stablecoin Standard](https://superteam.fun/earn/listing/build-the-solana-stablecoin-standard-bounty) and is managed through the [`solana-stable` CLI](../../cli/README.md).
 
 ---
 
@@ -31,7 +31,7 @@ The `_reserved` fields are reserved for future upgrades and must not be used by 
 |-------------|-------------|--------------|
 | `initialize_config` | Any signer (becomes admin) | Creates the Config PDA, recording the admin and the mint. |
 | `initialize_extra_account_meta_list` | Any signer (payer) | Allocates the TLV account so Token-2022 can resolve extra accounts at transfer time. |
-| `add_to_blacklist(wallet)` | Admin only | Sets `blocked = true` on the wallet's BlacklistEntry PDA for this mint (creates it if needed via `init_if_needed`). |
+| `add_to_blacklist(wallet, reason)` | Admin only | Sets `blocked = true` on the wallet's BlacklistEntry PDA for this mint (creates it if needed via `init_if_needed`). `reason` is an optional string stored on-chain and emitted in the `WalletBlacklisted` event. |
 | `remove_from_blacklist(wallet)` | Admin only | Sets `blocked = false` on the BlacklistEntry PDA. Does **not** close the account. |
 | `close_blacklist_entry(wallet)` | Admin only | Closes the BlacklistEntry PDA and reclaims rent to the admin. **Fails** if the entry is still blocked. |
 | `transfer_admin(new_admin)` | Admin only | Nominates a new admin. The new admin must call `accept_admin` to complete the handover. |
@@ -114,7 +114,7 @@ The program emits typed Anchor events on every state change:
 | Event | When |
 |-------|------|
 | `ConfigInitialized` | Config PDA created |
-| `WalletBlacklisted` | Wallet added to blacklist |
+| `WalletBlacklisted` | Wallet added to blacklist. Fields: `wallet: Pubkey`, `mint: Pubkey`, `reason: String`. |
 | `WalletUnblacklisted` | Wallet removed from blacklist |
 | `BlacklistEntryClosed` | BlacklistEntry PDA closed |
 | `AdminTransferNominated` | New admin nominated via `transfer_admin` |
@@ -143,18 +143,18 @@ These events can be indexed off-chain for compliance dashboards and analytics.
 
 ## Using with the CLI
 
-The `sss-token` CLI (`../../cli/`) wraps this program so you don't need to build Anchor transactions manually.
+The `solana-stable` CLI (`../../cli/`) wraps this program so you don't need to build Anchor transactions manually.
 
 ```bash
 # Deploy an SSS-2 stablecoin (creates mint + initializes hook PDAs)
-sss-token init --preset sss-2
+solana-stable init --preset sss-2
 # ... edit config: set extensions.transferHook.programId ...
-sss-token init --custom sss-token.config.toml
+solana-stable init --custom sss-token.config.toml
 
 # Manage the blacklist
-sss-token blacklist add <wallet>
-sss-token blacklist remove <wallet>
-sss-token blacklist check <wallet>
+solana-stable blacklist add <wallet> --reason "OFAC SDN"
+solana-stable blacklist remove <wallet>
+solana-stable blacklist check <wallet>
 ```
 
 See the [CLI README](../../cli/README.md) for full details.
