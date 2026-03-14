@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Solana Stablecoin Standard (SSS) is a reference implementation and toolkit that defines how stablecoins should be built on Solana using the Token-2022 program. It provides two compliance presets, a full-stack toolchain, and an on-chain Anchor program for transfer-hook enforcement.
+The Solana Stablecoin Standard (SSS) is a reference implementation and toolkit that defines how stablecoins should be built on Solana using the Token-2022 program. It provides two compliance presets, a full-stack toolchain, on-chain Anchor programs for both stablecoin management (sss-core) and transfer-hook compliance (blacklist hook).
 
 ### Why Token-2022?
 

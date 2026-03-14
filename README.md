@@ -16,10 +16,11 @@ The project defines two compliance presets — **SSS-1** (minimal) and **SSS-2**
 
 ```
 solana-stablecoin-standard/
+├── programs/sss-core/          Anchor program — stablecoin config, RBAC, quotas, seize
+├── transfer_hooks/blacklist/   Anchor program — transfer-hook blacklist (SSS-2)
 ├── cli/                        Command-line interface for deploying & managing stablecoins
 ├── sdk/                        TypeScript SDK wrapping all on-chain operations
 ├── backend/                    REST API service (mint/burn lifecycle, webhooks, event listener)
-├── transfer_hooks/blacklist/   Anchor program — transfer-hook blacklist (SSS-2)
 ├── demo/                       React + Phantom wallet demo app
 └── docs/                       Full documentation
 ```

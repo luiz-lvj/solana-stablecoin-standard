@@ -159,7 +159,7 @@ To upgrade:
 
 ## Security Considerations
 
-All SSS-1 security considerations apply, plus:
+All SSS-1 security considerations apply. When used with the SSS-Core program, RBAC enforces role-based separation (Blacklister role required for blacklist management, Seizer role for seizure, etc.). Additionally:
 
 - **Blacklist admin key**: This is the most sensitive SSS-2 key. It controls who can send/receive the token. Store in an HSM or multisig.
 - **Two-step admin transfer**: The admin can be safely transferred via `transfer_admin` + `accept_admin`. This prevents accidental loss of admin control.

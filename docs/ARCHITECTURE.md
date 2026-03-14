@@ -6,11 +6,13 @@ The Solana Stablecoin Standard is organized in five layers. Each layer depends o
 
 ```
 ┌───────────────────────────────────────────────┐
-│  Layer 5 — Demo (React + Phantom)             │  User-facing UI
+│  Layer 6 — Demo (React + Phantom)             │  User-facing UI
 ├───────────────────────────────────────────────┤
-│  Layer 4 — Backend (Express REST API)         │  Infrastructure services
+│  Layer 5 — Backend (Express REST API)         │  Infrastructure services
 ├───────────────────────────────────────────────┤
-│  Layer 3 — CLI + SDK (TypeScript)             │  Developer tooling
+│  Layer 4 — CLI + SDK (TypeScript)             │  Developer tooling
+├───────────────────────────────────────────────┤
+│  Layer 3 — SSS-Core Program (Anchor/Rust)     │  On-chain stablecoin management
 ├───────────────────────────────────────────────┤
 │  Layer 2 — Blacklist Hook (Anchor/Rust)       │  On-chain compliance
 ├───────────────────────────────────────────────┤
@@ -26,7 +28,7 @@ The foundation. Solana's Token-2022 program provides the mint account, token acc
 - **Metadata Pointer Extension**: Points the mint to itself so name/symbol/URI are stored on-mint, eliminating the need for Metaplex.
 - **Transfer Hook Extension**: Registers a program ID that Token-2022 CPIs into on every `TransferChecked`. This is how SSS-2 enforces blacklist checks.
 
-### Layer 2 — Blacklist Hook Program
+### Layer 2 — Blacklist Hook Program (SSS-2 only)
 
 An Anchor program deployed at a known address. Token-2022 calls it during every transfer of an SSS-2 token. The program maintains:
 
@@ -36,7 +38,21 @@ An Anchor program deployed at a known address. Token-2022 calls it during every 
 
 On every transfer, the hook: (1) verifies the `TransferHookAccount.transferring` flag to prevent direct invocation, (2) unpacks token accounts to get owner wallets, (3) derives per-mint blacklist PDAs, and (4) checks if either side is blocked. Missing PDAs (wallet never blacklisted) pass through cleanly.
 
-### Layer 3 — CLI and SDK
+### Layer 3 — SSS-Core Program
+
+The core on-chain program that defines the **StablecoinConfig PDA** — the foundation of the standard. It provides:
+
+- **RBAC**: PDA-per-role pattern (`["role", config, grantee, role_type]`). Roles: Minter, Burner, Freezer, Pauser, Blacklister, Seizer.
+- **Per-Minter Quotas**: `MinterInfo` PDA tracks cumulative minted amounts against configurable caps.
+- **Pause/Unpause**: Protocol-level pause flag on the config PDA. Blocks mint, burn, and seize.
+- **Two-Step Authority Transfer**: Nominate → accept pattern prevents accidental loss of admin control.
+- **Seize**: Atomic thaw → burn (permanent delegate) → mint to treasury → re-freeze. Bypasses the transfer hook since seizure is an authority action, not a user transfer.
+- **Supply Cap**: Optional on-chain supply ceiling enforced during minting.
+- **Typed Events**: All state changes emit Anchor events for on-chain auditability.
+
+On `initialize`, the program transfers the mint authority and freeze authority to the config PDA, ensuring all mint/burn/freeze operations must route through the program.
+
+### Layer 4 — CLI and SDK
 
 Both produce the same on-chain transactions. The CLI is for operators (shell-based workflow with TOML config files). The SDK is for developers (programmatic TypeScript API).
 
@@ -46,7 +62,7 @@ Both produce the same on-chain transactions. The CLI is for operators (shell-bas
 
 Both support all operations: deploy, mint, burn, freeze, thaw, pause, unpause, set-authority, blacklist, and read operations (supply, balance, status, audit log).
 
-### Layer 4 — Backend
+### Layer 5 — Backend
 
 An Express server that wraps the SDK and adds:
 
@@ -57,7 +73,7 @@ An Express server that wraps the SDK and adds:
 
 The backend is stateless — the blockchain is the source of truth. Only the webhook registry is held in memory.
 
-### Layer 5 — Demo
+### Layer 6 — Demo
 
 A React/Vite app with Tailwind CSS and the Solana Wallet Adapter. It builds transactions client-side using `@solana/spl-token` instructions and sends them to Phantom for signing. Read operations go directly to the RPC. The backend is only used for the webhooks tab.
 

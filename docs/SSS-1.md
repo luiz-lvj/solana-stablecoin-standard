@@ -58,17 +58,30 @@ Steps 1–3 are in a single transaction. Step 4 is a separate transaction becaus
 
 ---
 
+## SSS-Core Program Integration
+
+When initialized through the SSS-Core program, the config PDA takes ownership of the mint and freeze authorities. This enables:
+
+- **RBAC**: Role-based access control via PDA-per-role. Separate Minter, Burner, Freezer, Pauser, Seizer roles.
+- **Per-Minter Quotas**: Configurable caps tracked on-chain.
+- **Pause/Unpause**: Protocol-level pause that blocks minting, burning, and seizure.
+- **Two-Step Authority Transfer**: Nominate → accept pattern to prevent accidental admin loss.
+- **Supply Cap**: Optional on-chain supply ceiling.
+
+See [programs/sss-core/README.md](../programs/sss-core/README.md) for full program documentation.
+
 ## Operations
 
 ### Core
 
 | Operation | Who can do it | Description |
 |-----------|--------------|-------------|
-| Mint | Mint authority | Create new supply, credited to a recipient's ATA |
-| Burn | Token owner | Destroy tokens from the signer's ATA |
-| Freeze | Freeze authority | Block a specific token account from all transfers |
-| Thaw | Freeze authority | Unblock a frozen token account |
+| Mint | Minter (via sss-core) or Mint authority (direct) | Create new supply, credited to a recipient's ATA |
+| Burn | Burner (via sss-core) or Token owner (direct) | Destroy tokens from the signer's ATA |
+| Freeze | Freezer (via sss-core) or Freeze authority (direct) | Block a specific token account from all transfers |
+| Thaw | Freezer (via sss-core) or Freeze authority (direct) | Unblock a frozen token account |
 | Set Authority | Current authority | Transfer or revoke any authority |
+| Seize | Seizer (via sss-core) | Thaw → burn → mint to treasury → re-freeze |
 
 ### Read-only
 
