@@ -62,6 +62,8 @@ pub fn transfer_hook(ctx: Context<TransferHook>, _amount: u64) -> Result<()> {
         BlacklistError::MintMismatch
     );
 
+    require!(!ctx.accounts.config.paused, BlacklistError::TransfersPaused);
+
     let source_data = ctx.accounts.source_token.try_borrow_data()?;
     let destination_data = ctx.accounts.destination_token.try_borrow_data()?;
 

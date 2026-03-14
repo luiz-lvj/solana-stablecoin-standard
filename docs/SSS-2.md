@@ -53,7 +53,9 @@ The blacklist hook is an Anchor program that must be deployed before the SSS-2 t
 | `close_blacklist_entry(wallet)` | Admin | Closes an unblocked BlacklistEntry PDA, reclaims rent |
 | `transfer_admin(new_admin)` | Admin | Nominates a new admin (two-step) |
 | `accept_admin()` | Pending admin | Accepts the admin role |
-| `transfer_hook(amount)` | Token-2022 (CPI) | Checks blacklist; rejects if either side is blocked |
+| `pause_hook` | Admin | Sets `paused = true` on the Config PDA; blocks all transfers |
+| `unpause_hook` | Admin | Sets `paused = false` on the Config PDA; resumes transfers |
+| `transfer_hook(amount)` | Token-2022 (CPI) | Checks pause flag and blacklist; rejects if paused or either side is blocked |
 
 #### Events
 
@@ -65,18 +67,22 @@ The blacklist hook is an Anchor program that must be deployed before the SSS-2 t
 | `BlacklistEntryClosed` | Blacklist entry PDA closed |
 | `AdminTransferNominated` | New admin nominated |
 | `AdminTransferred` | New admin accepted |
+| `TransfersPaused` | Transfers paused via `pause_hook` |
+| `TransfersUnpaused` | Transfers unpaused via `unpause_hook` |
 
 #### Transfer Hook Execution Flow
 
 1. A user calls `TransferChecked` on Token-2022.
 2. Token-2022 resolves the extra accounts from the ExtraAccountMetaList PDA.
 3. Token-2022 CPIs into the hook program's `execute` entrypoint.
-4. The hook verifies `TransferHookAccount.transferring == true` on the source token account (prevents direct invocation).
-5. It unpacks source and destination token accounts to get owner wallets.
-6. It derives the expected blacklist PDAs using `["blacklist", mint, owner]`.
-7. **If a blacklist PDA doesn't exist** (wallet was never blacklisted), it is treated as not blacklisted.
-8. **If a blacklist PDA exists** and `blocked == true`, the hook returns an error.
-9. If neither side is blocked, the transfer completes.
+4. The hook validates the ExtraAccountMetaList PDA and config mint.
+5. **If `config.paused == true`**, the hook returns `TransfersPaused`.
+6. The hook verifies `TransferHookAccount.transferring == true` on the source token account (prevents direct invocation).
+7. It unpacks source and destination token accounts to get owner wallets.
+8. It derives the expected blacklist PDAs using `["blacklist", mint, owner]`.
+9. **If a blacklist PDA doesn't exist** (wallet was never blacklisted), it is treated as not blacklisted.
+10. **If a blacklist PDA exists** and `blocked == true`, the hook returns an error.
+11. If neither side is blocked, the transfer completes.
 
 #### Blacklist Model
 
@@ -152,8 +158,12 @@ When `compliance_enabled` is true, SSS-Core's `mint_tokens` instruction requires
 | 6007 | `NotTransferring` | Transfer hook invoked outside of a token transfer |
 | 6008 | `NoPendingAdmin` | No pending admin nomination to accept |
 | 6009 | `CannotCloseBlockedEntry` | Cannot close a blacklist entry that is still blocked |
-| 6017 | `ZeroAmount` | `mint_tokens`, `burn_tokens`, `burn_from`, or `seize` was called with `amount == 0` |
-| 6018 | `HookProgramNotSet` | Transfer hook program not set on StablecoinConfig |
+| 6010 | `TransfersPaused` | Transfers are paused via `pause_hook` |
+| 6011 | `AlreadyPaused` | Transfers are already paused |
+| 6012 | `NotPaused` | Transfers are not paused; cannot unpause |
+| 6017 | `ZeroAmount` | `mint_tokens`, `burn_tokens`, `burn_from`, or `seize` was called with `amount == 0` (SSS-Core) |
+| 6018 | `HookProgramNotSet` | Transfer hook program not set on StablecoinConfig (SSS-Core) |
+| 6019 | `DefaultAccountStateNotFrozen` | SSS-2 requires `DefaultAccountState::Frozen` on the mint (SSS-Core) |
 
 ---
 

@@ -227,6 +227,29 @@ export async function runAuditLog(
   }
 }
 
+export async function runSeize(
+  cfg: SssConfig,
+  targetTokenAccountStr: string,
+  treasuryStr: string,
+  amountRaw: bigint,
+): Promise<void> {
+  const stable = loadStablecoin(cfg);
+  // Seize requires the authority to be freeze authority + permanent delegate + mint authority.
+  // Prefer permanentDelegate config if available, then fall back to freeze, then mint.
+  const kpPath = cfg.authorities.permanentDelegate?.trim() || cfg.authorities.freeze || cfg.authorities.mint;
+  const authority = loadKeypair(kpPath);
+  const targetTokenAccount = new PublicKey(targetTokenAccountStr);
+  const treasury = new PublicKey(treasuryStr);
+
+  const sig = await stable.seize({
+    authority,
+    targetTokenAccount,
+    treasury,
+    amount: amountRaw,
+  });
+  printTx("Seized", { targetTokenAccount: targetTokenAccountStr, treasury: treasuryStr, amount: amountRaw.toString(), tx: sig });
+}
+
 function getAuthorityKeypairPath(cfg: SssConfig, type: string): string {
   const t = type.toLowerCase();
   if (t === "mint") return cfg.authorities.mint;

@@ -1,3 +1,5 @@
+#![deny(clippy::all)]
+
 use anchor_lang::prelude::*;
 
 pub mod constants;

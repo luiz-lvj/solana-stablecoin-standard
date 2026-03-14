@@ -6,8 +6,9 @@ pub struct Config {
     pub admin: Pubkey,
     pub pending_admin: Option<Pubkey>,
     pub mint: Pubkey,
+    pub paused: bool,
     pub bump: u8,
-    pub _reserved: [u8; 64],
+    pub _reserved: [u8; 63],
 }
 
 #[account]

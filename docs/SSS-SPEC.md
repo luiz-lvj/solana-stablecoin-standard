@@ -125,7 +125,7 @@ The blacklist hook is an Anchor program deployed separately. The mint's Transfer
 
 | Account | Seeds | Key Fields |
 |---------|-------|------------|
-| Config | `["config", mint]` | `admin`, `pending_admin`, `mint`, `bump`, `_reserved[64]` |
+| Config | `["config", mint]` | `admin`, `pending_admin`, `mint`, `paused`, `bump`, `_reserved[63]` |
 | BlacklistEntry | `["blacklist", mint, wallet]` | `wallet`, `mint`, `blocked`, `reason` (String, max 128 chars), `bump`, `_reserved[32]` |
 | ExtraAccountMetaList | `["extra-account-metas", mint]` | TLV-encoded account resolution list |
 
@@ -140,7 +140,9 @@ The blacklist hook is an Anchor program deployed separately. The mint's Transfer
 | `close_blacklist_entry(wallet)` | Admin | Closes an **unblocked** BlacklistEntry PDA, reclaims rent |
 | `transfer_admin(new_admin)` | Admin | Nominates a new admin (two-step) |
 | `accept_admin()` | Pending admin | Accepts the admin role |
-| `transfer_hook(amount)` | Token-2022 CPI | Checks blacklist; rejects if either side is blocked |
+| `pause_hook` | Admin | Sets `paused = true` on Config PDA; blocks all transfers |
+| `unpause_hook` | Admin | Sets `paused = false` on Config PDA; resumes transfers |
+| `transfer_hook(amount)` | Token-2022 CPI | Checks pause flag and blacklist; rejects if paused or either side is blocked |
 
 #### 3.3.3 Transfer Hook Execution
 
@@ -257,6 +259,7 @@ All state-changing instructions emit typed Anchor events:
 | 6016 | `ComplianceNotEnabled` | Operation requires `compliance_enabled = true` on the config |
 | 6017 | `ZeroAmount` | Amount must be greater than zero (`mint_tokens`, `burn_tokens`, `burn_from`, `seize`) |
 | 6018 | `HookProgramNotSet` | Transfer hook program not set in config |
+| 6019 | `DefaultAccountStateNotFrozen` | SSS-2 requires `DefaultAccountState::Frozen` on the mint |
 
 ### 4.6 Supply Cap
 
@@ -277,16 +280,17 @@ The `compliance_enabled` boolean on `StablecoinConfig` controls whether `mint_to
 - When `compliance_enabled = false`, no blacklist check is performed during minting.
 - The flag is set at `initialize` time via the `complianceEnabled` parameter and can be toggled at any time by the authority via `set_compliance(enabled)`.
 
-### 4.9 Dual Pause Mechanism
+### 4.9 Triple Pause Mechanism
 
-SSS supports two independent pause mechanisms:
+SSS supports three independent pause mechanisms at different levels:
 
 | Mechanism | Level | Scope | Use When |
 |-----------|-------|-------|----------|
 | **Token-2022 `PausableConfig`** | Protocol (runtime) | Blocks **all** token operations: transfers, mints, burns. Enforced by the Solana runtime. | Emergency halt of all token movement. |
 | **SSS-Core `config.paused`** | Application (program) | Blocks **program-gated** operations only: mint, burn, seize via `sss-core`. Does **not** block direct `TransferChecked` calls to Token-2022. | Operational pause — stop new issuance and burns while allowing existing holders to transfer. |
+| **Blacklist Hook `config.paused`** | Transfer (hook) | Blocks all **transfers** through the hook. Mints and burns still work. | Transfer-level pause — stop all token movement between wallets while the issuer can still mint/burn. |
 
-Both can be used together for defense-in-depth. The blacklist transfer hook continues to enforce transfer restrictions regardless of `config.paused`.
+All three can be used together for defense-in-depth.
 
 ### 4.10 Feature-Gated Modules
 

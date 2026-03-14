@@ -22,4 +22,10 @@ pub enum BlacklistError {
     NoPendingAdmin = 6008,
     #[msg("Cannot close a blacklist entry that is still blocked")]
     CannotCloseBlockedEntry = 6009,
+    #[msg("Transfers are paused")]
+    TransfersPaused = 6010,
+    #[msg("Transfers are already paused")]
+    AlreadyPaused = 6011,
+    #[msg("Transfers are not paused")]
+    NotPaused = 6012,
 }

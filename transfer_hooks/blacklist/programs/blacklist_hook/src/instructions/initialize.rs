@@ -31,6 +31,7 @@ pub fn initialize_config(ctx: Context<InitializeConfig>) -> Result<()> {
     config.admin = ctx.accounts.admin.key();
     config.pending_admin = None;
     config.mint = ctx.accounts.mint.key();
+    config.paused = false;
     config.bump = ctx.bumps.config;
 
     emit!(ConfigInitialized {

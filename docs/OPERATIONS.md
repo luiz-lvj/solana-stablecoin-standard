@@ -160,7 +160,7 @@ npx solana-stable admin pause
 npx solana-stable admin unpause
 ```
 
-> **Dual pause**: Token-2022 `PausableConfig` is a protocol-level halt (blocks everything). SSS-Core `config.paused` is an application-level halt (blocks only program-gated ops like mint/burn/seize). See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+> **Triple pause**: Token-2022 `PausableConfig` is a protocol-level halt (blocks everything). SSS-Core `config.paused` is an application-level halt (blocks only program-gated ops like mint/burn/seize). The blacklist hook's `pause_hook` / `unpause_hook` is a transfer-level halt (blocks all transfers through the hook while mints/burns still work). See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
 
 ---
 

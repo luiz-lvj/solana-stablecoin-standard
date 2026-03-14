@@ -1,3 +1,5 @@
+#![deny(clippy::all)]
+
 use anchor_lang::prelude::*;
 use spl_transfer_hook_interface::instruction::TransferHookInstruction;
 
@@ -60,6 +62,14 @@ pub mod blacklist_hook {
 
     pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
         instructions::admin::accept_admin(ctx)
+    }
+
+    pub fn pause_hook(ctx: Context<PauseHook>) -> Result<()> {
+        instructions::pause::pause_hook(ctx)
+    }
+
+    pub fn unpause_hook(ctx: Context<PauseHook>) -> Result<()> {
+        instructions::pause::unpause_hook(ctx)
     }
 
     pub fn transfer_hook(ctx: Context<TransferHook>, amount: u64) -> Result<()> {

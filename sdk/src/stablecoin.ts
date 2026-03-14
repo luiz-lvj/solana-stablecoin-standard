@@ -800,6 +800,76 @@ export class SolanaStablecoin {
     });
   }
 
+  // ─── Batch operations ─────────────────────────────────────────────────────
+
+  async batchMint(
+    minter: Keypair,
+    recipients: { recipient: PublicKey; amount: bigint }[],
+  ): Promise<string> {
+    const tx = new Transaction();
+    for (const { recipient, amount } of recipients) {
+      const ata = await createAssociatedTokenAccountIdempotent(
+        this.connection,
+        minter,
+        this.mint,
+        recipient,
+        { commitment: "confirmed" },
+        this.tokenProgramId,
+      );
+      tx.add(
+        createMintToInstruction(
+          this.mint,
+          ata,
+          minter.publicKey,
+          amount,
+          [],
+          this.tokenProgramId,
+        ),
+      );
+    }
+    return sendAndConfirmTransaction(this.connection, tx, [minter], {
+      commitment: "confirmed",
+    });
+  }
+
+  batchFreeze(
+    authority: PublicKey,
+    tokenAccounts: PublicKey[],
+  ): Transaction {
+    const tx = new Transaction();
+    for (const ta of tokenAccounts) {
+      tx.add(
+        createFreezeAccountInstruction(
+          ta,
+          this.mint,
+          authority,
+          [],
+          this.tokenProgramId,
+        ),
+      );
+    }
+    return tx;
+  }
+
+  batchThaw(
+    authority: PublicKey,
+    tokenAccounts: PublicKey[],
+  ): Transaction {
+    const tx = new Transaction();
+    for (const ta of tokenAccounts) {
+      tx.add(
+        createThawAccountInstruction(
+          ta,
+          this.mint,
+          authority,
+          [],
+          this.tokenProgramId,
+        ),
+      );
+    }
+    return tx;
+  }
+
   async pause(authority: Keypair): Promise<string> {
     return pause(
       this.connection,

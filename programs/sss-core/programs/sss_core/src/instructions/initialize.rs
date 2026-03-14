@@ -1,6 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenInterface};
-use spl_token_2022::instruction::AuthorityType;
+use spl_token_2022::{
+    extension::{BaseStateWithExtensions, StateWithExtensions, default_account_state::DefaultAccountState},
+    instruction::AuthorityType,
+    state::Mint as MintState,
+};
 
 use crate::constants::*;
 use crate::error::SssError;
@@ -12,6 +16,22 @@ pub fn initialize(ctx: Context<Initialize>, params: InitializeParams) -> Result<
         params.preset == PRESET_SSS1 || params.preset == PRESET_SSS2,
         SssError::InvalidPreset
     );
+
+    // SSS-2: verify the mint has DefaultAccountState::Frozen for KYC-gated onboarding
+    if params.preset == PRESET_SSS2 {
+        let mint_info = ctx.accounts.mint.to_account_info();
+        let mint_data = mint_info.try_borrow_data()?;
+        if let Ok(mint_state) = StateWithExtensions::<MintState>::unpack(&mint_data) {
+            if let Ok(das) = mint_state.get_extension::<DefaultAccountState>() {
+                let state_val: u8 = das.state.into();
+                // AccountState::Frozen == 2
+                require!(state_val == 2, SssError::DefaultAccountStateNotFrozen);
+            } else {
+                return err!(SssError::DefaultAccountStateNotFrozen);
+            }
+        }
+        drop(mint_data);
+    }
 
     let config = &mut ctx.accounts.config;
     config.authority = ctx.accounts.authority.key();

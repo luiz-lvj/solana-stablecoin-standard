@@ -25,6 +25,7 @@ The project defines two compliance presets — **SSS-1** (minimal) and **SSS-2**
 solana-stablecoin-standard/
 ├── programs/sss-core/          Anchor program — stablecoin config, RBAC, quotas, seize
 ├── transfer_hooks/blacklist/   Anchor program — transfer-hook blacklist (SSS-2)
+├── tests-litesvm/              LiteSVM Rust-native fuzz & integration tests
 ├── cli/                        Command-line interface for deploying & managing stablecoins
 ├── sdk/                        TypeScript SDK wrapping all on-chain operations
 ├── backend/                    REST API service (mint/burn lifecycle, webhooks, event listener)
@@ -39,7 +40,7 @@ solana-stablecoin-standard/
 | **SSS-1** | Minimal stablecoin — mint/burn, freeze, on-mint metadata | Metadata Pointer |
 | **SSS-2** | SSS-1 + compliance — blacklist enforcement via transfer hook, KYC-gated accounts | Metadata Pointer, Transfer Hook, DefaultAccountState::Frozen |
 
-**SSS-Core features**: RBAC roles, per-minter quotas, supply cap, dual pause, metadata updates, compliance toggle, burn-from-any-account, and **reserve attestation** (proof-of-reserve for GENIUS Act compliance) — with a **feature-gated module system** (`compliance`, `quotas`, `supply-cap`) that lets issuers strip modules they don't need at compile time.
+**SSS-Core features**: RBAC roles, per-minter quotas, supply cap, triple-layer pause (Token-2022 + SSS-Core + hook), metadata updates, compliance toggle, burn-from-any-account, and **reserve attestation** (proof-of-reserve for GENIUS Act compliance) — with a **feature-gated module system** (`compliance`, `quotas`, `supply-cap`) that lets issuers strip modules they don't need at compile time.
 
 See [docs/SSS-1.md](docs/SSS-1.md) and [docs/SSS-2.md](docs/SSS-2.md) for the full specifications.
 

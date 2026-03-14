@@ -229,6 +229,25 @@ const tx7 = stable.buildSetAuthorityTransaction(payerPubkey, "freeze", newAuthor
 // Sign with wallet adapter, then send
 ```
 
+### Batch Operations
+
+Bundle multiple operations into a single transaction for gas efficiency:
+
+```typescript
+// Batch mint to multiple recipients in one transaction
+const sig = await stable.batchMint(minterKeypair, [
+  { recipient: wallet1, amount: 1_000_000n },
+  { recipient: wallet2, amount: 2_000_000n },
+  { recipient: wallet3, amount: 500_000n },
+]);
+
+// Batch freeze (returns unsigned Transaction for wallet adapter)
+const tx = stable.batchFreeze(authorityPubkey, [ata1, ata2, ata3]);
+
+// Batch thaw
+const tx2 = stable.batchThaw(authorityPubkey, [ata1, ata2, ata3]);
+```
+
 ## Read Operations
 
 ### Supply
@@ -354,7 +373,8 @@ await stable.core.revokeRole(authority, minterPubkey, ROLE_MINTER);
 ### RBAC-Gated Operations
 
 ```typescript
-await stable.core.mintTokens(minterKeypair, recipientAta, 100_000n);
+// recipientBlacklistEntry is optional — pass it when compliance is enabled
+await stable.core.mintTokens(minterKeypair, recipientAta, 100_000n, recipientBlacklistEntryPda);
 await stable.core.burnTokens(burnerKeypair, burnerAta, 50_000n);
 await stable.core.burnFrom(burnerKeypair, targetAta, 100_000n); // burn from any account (permanent delegate)
 await stable.core.freezeAccount(freezerKeypair, targetAta);

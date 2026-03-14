@@ -40,4 +40,6 @@ pub enum SssError {
     ZeroAmount = 6017,
     #[msg("Transfer hook program not set")]
     HookProgramNotSet = 6018,
+    #[msg("SSS-2 requires DefaultAccountState::Frozen on the mint")]
+    DefaultAccountStateNotFrozen = 6019,
 }

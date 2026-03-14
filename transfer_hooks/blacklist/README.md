@@ -12,7 +12,7 @@ This program powers the **SSS-2** profile of the [Solana Stablecoin Standard](ht
 
 | Account | Seeds | Description |
 |---------|-------|-------------|
-| **Config** | `["config", mint]` | Stores the admin authority, optional pending admin, mint, bump, and reserved space. Created once per mint via `initialize_config`. |
+| **Config** | `["config", mint]` | Stores the admin authority, optional pending admin, mint, pause flag, bump, and reserved space. Created once per mint via `initialize_config`. |
 | **BlacklistEntry** | `["blacklist", mint, wallet]` | Per-mint, per-wallet record with `blocked: bool` and bump. Each mint has its own independent blacklist. Created on first `add_to_blacklist`; unblocked by `remove_from_blacklist`; closed by `close_blacklist_entry` when not blocked. |
 | **ExtraAccountMetaList** | `["extra-account-metas", mint]` | TLV account that tells Token-2022 which extra accounts the hook's `Execute` entrypoint needs. Created once via `initialize_extra_account_meta_list`. |
 
@@ -20,7 +20,7 @@ This program powers the **SSS-2** profile of the [Solana Stablecoin Standard](ht
 
 | Account | Layout (bytes) |
 |---------|----------------|
-| **Config** | admin (32) + pending_admin `Option<Pubkey>` (33) + mint (32) + bump (1) + _reserved (64) |
+| **Config** | admin (32) + pending_admin `Option<Pubkey>` (33) + mint (32) + paused (1) + bump (1) + _reserved (63) |
 | **BlacklistEntry** | wallet (32) + mint (32) + blocked (1) + reason `String` (4+N, max 128) + bump (1) + _reserved (32) |
 
 The `_reserved` fields are reserved for future upgrades and must not be used by clients.
@@ -36,7 +36,9 @@ The `_reserved` fields are reserved for future upgrades and must not be used by 
 | `close_blacklist_entry(wallet)` | Admin only | Closes the BlacklistEntry PDA and reclaims rent to the admin. **Fails** if the entry is still blocked. |
 | `transfer_admin(new_admin)` | Admin only | Nominates a new admin. The new admin must call `accept_admin` to complete the handover. |
 | `accept_admin` | Pending admin only | Accepts the admin role. Completes the two-step admin transfer. |
-| `transfer_hook(amount)` | Token-2022 CPI | Called automatically during `transferChecked`. Validates invocation context, reads source/destination owners, derives BlacklistEntry PDAs, and returns an error if either is blocked. |
+| `pause_hook` | Admin only | Sets `paused = true` on the Config PDA. All subsequent transfers are rejected with `TransfersPaused`. |
+| `unpause_hook` | Admin only | Sets `paused = false` on the Config PDA. Transfers resume. |
+| `transfer_hook(amount)` | Token-2022 CPI | Called automatically during `transferChecked`. Validates invocation context, checks the pause flag, reads source/destination owners, derives BlacklistEntry PDAs, and returns an error if paused or either side is blocked. |
 
 ### Transfer hook flow
 
@@ -50,6 +52,7 @@ User calls transferChecked (Token-2022)
   └─ Token-2022 CPIs into blacklist_hook::transfer_hook
        │
        ├─ Validates ExtraAccountMetaList PDA
+       ├─ Checks config.paused → if true, error: TransfersPaused
        ├─ Unpacks source & destination token-account data (owner at offset 32)
        ├─ Verifies TransferHookAccount.transferring on source → prevents direct invocation
        ├─ Derives expected BlacklistEntry PDAs: ["blacklist", mint, owner]
@@ -138,6 +141,9 @@ These events can be indexed off-chain for compliance dashboards and analytics.
 | 6007 | NotTransferring | Hook invoked outside a token transfer (direct call) |
 | 6008 | NoPendingAdmin | No pending admin nomination to accept |
 | 6009 | CannotCloseBlockedEntry | Cannot close a blacklist entry that is still blocked |
+| 6010 | TransfersPaused | Transfers are paused via `pause_hook` |
+| 6011 | AlreadyPaused | Transfers are already paused |
+| 6012 | NotPaused | Transfers are not paused; cannot unpause |
 
 ---
 
@@ -169,15 +175,16 @@ The program follows a modular structure (inspired by [`solana-vault-standard`](h
 src/
 ├── lib.rs              Thin wrapper — declare_id, module declarations, #[program] delegates, fallback
 ├── constants.rs        PDA seeds (CONFIG_SEED, BLACKLIST_SEED, EXTRA_ACCOUNT_METAS_SEED)
-├── error.rs            BlacklistError enum (10 error codes, 6000–6009)
-├── events.rs           6 typed Anchor event structs
-├── state.rs            Config, BlacklistEntry (with on-chain reason field)
+├── error.rs            BlacklistError enum (13 error codes, 6000–6012)
+├── events.rs           8 typed Anchor event structs
+├── state.rs            Config (with paused flag), BlacklistEntry (with on-chain reason field)
 └── instructions/       One file per instruction group
     ├── mod.rs           Re-exports all instruction modules
     ├── initialize.rs    initialize_config, initialize_extra_account_meta_list
     ├── blacklist.rs     add_to_blacklist, remove_from_blacklist, close_blacklist_entry
     ├── admin.rs         transfer_admin, accept_admin
-    └── transfer_hook.rs transfer_hook (CPI entrypoint)
+    ├── pause.rs         pause_hook, unpause_hook
+    └── transfer_hook.rs transfer_hook (CPI entrypoint, includes pause check)
 ```
 
 The `fallback` function remains in `lib.rs` because it references the generated `__private::__global::transfer_hook` dispatcher for the `spl-transfer-hook-interface` `Execute` entrypoint.
@@ -187,8 +194,8 @@ The `fallback` function remains in `lib.rs` because it references the generated 
 ## Run locally (standalone)
 
 1. Install a matching toolchain:
-   - Anchor CLI `0.31.x`
-   - `@coral-xyz/anchor` `0.31.x`
+   - Anchor CLI `0.32.x`
+   - `@coral-xyz/anchor` `0.32.x`
    - a recent Solana toolchain compatible with your Anchor install
 
 2. In the workspace root (`transfer_hooks/blacklist/`):

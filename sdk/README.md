@@ -101,6 +101,10 @@ SolanaStablecoin
 ├── buildSeizeTransaction(...)      Unsigned seize tx (async — checks ATA)
 ├── buildSetAuthorityTransaction(.) Unsigned set-authority tx
 │
+├── batchMint(minter, recipients[]) Batch mint to multiple recipients
+├── batchFreeze(authority, atas[])  Batch freeze (returns unsigned tx)
+├── batchThaw(authority, atas[])    Batch thaw (returns unsigned tx)
+│
 ├── compliance                      SSS-2 blacklist operations
 │   ├── blacklistAdd(wallet, admin, reason?)
 │   ├── blacklistRemove(wallet, admin)
@@ -378,6 +382,24 @@ const tx6 = await stablecoin.buildSeizeTransaction(authority, targetAta, treasur
 // Sign with wallet adapter, then send
 ```
 
+### Batch operations
+
+Bundle multiple operations into a single transaction:
+
+```typescript
+// Batch mint to multiple recipients in one tx
+const sig = await stablecoin.batchMint(minterKeypair, [
+  { recipient: wallet1, amount: 1_000_000n },
+  { recipient: wallet2, amount: 2_000_000n },
+]);
+
+// Batch freeze (returns unsigned Transaction for wallet adapter)
+const freezeTx = stablecoin.batchFreeze(authorityPubkey, [ata1, ata2, ata3]);
+
+// Batch thaw
+const thawTx = stablecoin.batchThaw(authorityPubkey, [ata1, ata2, ata3]);
+```
+
 ---
 
 ## Read operations
@@ -528,7 +550,8 @@ await stablecoin.core.revokeRole(authority, minterPubkey, ROLE_MINTER);
 ### RBAC-gated operations
 
 ```typescript
-await stablecoin.core.mintTokens(minterKeypair, recipientAta, 100_000n);
+// Pass recipientBlacklistEntry when compliance is enabled; omit for SSS-1
+await stablecoin.core.mintTokens(minterKeypair, recipientAta, 100_000n, recipientBlacklistEntryPda);
 await stablecoin.core.burnTokens(burnerKeypair, burnerAta, 50_000n);
 await stablecoin.core.burnFrom(burnerKeypair, targetAta, 50_000n); // burn from any account
 await stablecoin.core.freezeAccount(freezerKeypair, targetAta);

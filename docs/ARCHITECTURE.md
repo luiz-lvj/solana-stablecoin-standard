@@ -229,23 +229,23 @@ SSS encourages separating authorities across different keypairs:
 | **Pause Authority** (optional) | Halting all transfers | Yes |
 | **Permanent Delegate** (optional) | Recovering/seizing tokens from any account | Cannot be revoked once set |
 
-### Dual Pause Mechanism
+### Triple Pause Mechanism
 
-SSS has two independent pause mechanisms, and operators should understand when to use each:
+SSS has three independent pause mechanisms at different levels, and operators should understand when to use each:
 
 | Mechanism | Level | Scope | Use When |
 |-----------|-------|-------|----------|
 | **Token-2022 `PausableConfig`** | Protocol (runtime) | Blocks **all** token operations: transfers, mints, burns. Enforced by the Solana runtime itself. | Emergency halt of all token movement. No transactions of any kind can occur. |
 | **SSS-Core `config.paused`** | Application (program) | Blocks **program-gated** operations only: mint, burn, seize via `sss-core`. Does **not** block direct `TransferChecked` calls to Token-2022. | Operational pause — stop new issuance and burns while allowing existing holders to transfer. |
-
-**When compliance_enabled is true**, the SSS-2 blacklist transfer hook continues to enforce transfer restrictions regardless of the `config.paused` flag. The transfer hook is triggered by Token-2022 and is independent of `sss-core`.
+| **Blacklist Hook `config.paused`** | Transfer (hook) | Blocks all **transfers** through the hook. Mints and burns still work. | Transfer-level pause — stop all token movement between wallets while allowing the issuer to continue minting/burning. |
 
 **Recommended workflow**:
 - **Routine maintenance**: Use `sss-core` pause. Holders can still move tokens.
+- **Compliance incident (transfers only)**: Use hook `pause_hook`. Stops all transfers but allows minting/burning.
 - **Security incident**: Use Token-2022 pause. Nothing moves until the situation is resolved.
-- **Both together**: Belt-and-suspenders approach for maximum safety.
+- **All three together**: Belt-and-suspenders approach for maximum safety.
 
-The SDK's `pause()` and `unpause()` methods control the **Token-2022** extension (protocol-level). The `SssCoreClient`'s operations respect the **sss-core** `config.paused` flag (application-level). The CLI's `admin pause` / `admin unpause` operates on the Token-2022 level.
+The SDK's `pause()` and `unpause()` methods control the **Token-2022** extension (protocol-level). The `SssCoreClient`'s operations respect the **sss-core** `config.paused` flag (application-level). The hook's `pause_hook` / `unpause_hook` instructions control transfer-level pause. The CLI's `admin pause` / `admin unpause` operates on the Token-2022 level.
 
 ### On-Chain Enforcement
 
@@ -268,17 +268,15 @@ The demo never touches private keys. All signing happens in the Phantom wallet e
 
 ## Design Rationale
 
-### Why the Hook Doesn't Check `sss-core` Pause State
+### Why the Hook Has Its Own Pause (Not Cross-Program)
 
-An alternative design would have the transfer hook read `sss-core`'s `StablecoinConfig.paused` field during every transfer. SSS intentionally avoids this for three reasons:
+The blacklist hook has its own `paused` flag on its Config PDA, rather than reading `sss-core`'s `StablecoinConfig.paused`. This is intentional:
 
 1. **Program independence.** The blacklist hook is a standalone program that works with or without `sss-core`. Coupling it to `sss-core` would mean every issuer MUST deploy `sss-core` even if they only want blacklist enforcement.
 
-2. **Token-2022 already handles global pause.** The `PausableConfig` extension blocks ALL token operations (transfers, mints, burns) at the Solana runtime level. Adding a second pause check in the hook is redundant — Token-2022 rejects the transaction before the hook is ever invoked.
+2. **No extra account overhead.** Reading `sss-core`'s config PDA during every transfer would require adding it to the `ExtraAccountMetaList`, increasing compute cost for every transfer even when pause is not active. The hook's own config PDA is already resolved.
 
-3. **Minimal extra account overhead.** Adding `sss-core`'s config PDA to the `ExtraAccountMetaList` means every transfer must resolve and pass an additional account, increasing compute cost for every transfer even when pause is not active.
-
-The dual-pause architecture (Token-2022 protocol-level + `sss-core` application-level) provides defense-in-depth without coupling the programs.
+3. **Granular control.** The three-tier pause (Token-2022 protocol, `sss-core` application, hook transfer-level) gives operators precise control: they can pause transfers without affecting mints/burns (hook pause), pause program operations without affecting transfers (sss-core pause), or halt everything (Token-2022 pause).
 
 ### Why Seize Uses Burn + Mint (Not Transfer)
 

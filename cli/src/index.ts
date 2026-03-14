@@ -16,6 +16,7 @@ import {
   runBalance,
   runSetAuthority,
   runAuditLog,
+  runSeize,
 } from "./stablecoin/operations";
 import {
   runBlacklistAdd,
@@ -201,6 +202,22 @@ admin
   .action(async (type: string, newAuthority: string, opts: { config?: string }) => {
     try {
       await runSetAuthority(cfg(opts), type, newAuthority);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+  });
+
+admin
+  .command("seize")
+  .description("Seize tokens from a frozen account (thaw → burn → mint to treasury → re-freeze)")
+  .argument("<target-token-account>", "Token account to seize from (must be frozen)")
+  .argument("<treasury>", "Treasury wallet to receive seized tokens")
+  .argument("<amount>", "Amount in raw units")
+  .option("--config <path>", "Path to config TOML")
+  .action(async (target: string, treasury: string, amount: string, opts: { config?: string }) => {
+    try {
+      await runSeize(cfg(opts), target, treasury, BigInt(amount));
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;

@@ -379,6 +379,7 @@ export class SssCoreClient {
     minter: Keypair,
     recipientAta: PublicKey,
     amount: bigint,
+    recipientBlacklistEntry?: PublicKey,
   ): Promise<string> {
     const [rolePda] = getRoleAddress(
       this.configPda,
@@ -392,6 +393,10 @@ export class SssCoreClient {
       this.programId,
     );
 
+    // The on-chain MintTokens context always requires the recipient_blacklist_entry
+    // account slot. When compliance is disabled, pass SystemProgram as a placeholder.
+    const blEntry = recipientBlacklistEntry ?? SystemProgram.programId;
+
     const data = Buffer.concat([disc("mint_tokens"), encodeBN(amount)]);
 
     const ix = new TransactionInstruction({
@@ -402,6 +407,7 @@ export class SssCoreClient {
         { pubkey: minterInfoPda, isSigner: false, isWritable: true },
         { pubkey: this.mint, isSigner: false, isWritable: true },
         { pubkey: recipientAta, isSigner: false, isWritable: true },
+        { pubkey: blEntry, isSigner: false, isWritable: false },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
       ],
       programId: this.programId,

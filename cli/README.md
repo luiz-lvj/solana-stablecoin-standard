@@ -269,7 +269,7 @@ The CLI organizes commands into four logical groups:
 | Group | Commands | Purpose |
 |-------|----------|---------|
 | `operate` | `mint`, `burn`, `transfer` | Day-to-day token operations |
-| `admin` | `freeze`, `thaw`, `pause`, `unpause`, `set-authority` | Admin operations |
+| `admin` | `freeze`, `thaw`, `pause`, `unpause`, `set-authority`, `seize` | Admin operations |
 | `compliance` | `add`, `remove`, `check`, `close`, `transfer-admin`, `accept-admin` | Blacklist management (SSS-2) |
 | `inspect` | `status`, `supply`, `balance`, `audit-log` | Read-only queries |
 
@@ -510,6 +510,20 @@ Examples:
 solana-stable admin set-authority mint 9abc...xyz
 solana-stable admin set-authority freeze none
 ```
+
+---
+
+### `admin seize` -- Seize tokens from a frozen account
+
+```bash
+solana-stable admin seize <target-token-account> <treasury> <amount>
+```
+
+Performs an atomic thaw → burn → mint-to-treasury → re-freeze. The authority keypair must be the freeze authority, permanent delegate, and mint authority.
+
+- **`<target-token-account>`** -- The frozen token account to seize from.
+- **`<treasury>`** -- The wallet that receives the seized tokens (ATA created automatically).
+- **`<amount>`** -- Amount in raw units.
 
 ---
 

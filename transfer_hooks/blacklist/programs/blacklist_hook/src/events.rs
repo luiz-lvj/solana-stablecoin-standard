@@ -44,3 +44,15 @@ pub struct AdminTransferred {
     pub previous_admin: Pubkey,
     pub new_admin: Pubkey,
 }
+
+#[event]
+pub struct TransfersPaused {
+    pub config: Pubkey,
+    pub admin: Pubkey,
+}
+
+#[event]
+pub struct TransfersUnpaused {
+    pub config: Pubkey,
+    pub admin: Pubkey,
+}
