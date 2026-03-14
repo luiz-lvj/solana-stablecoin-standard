@@ -182,7 +182,10 @@ export class SolanaStablecoin {
       if (permanentDelegateEnabled) extensionTypes.push(ExtensionType.PermanentDelegate);
 
       const mintSpace = getMintLen(extensionTypes);
-      const lamports = await connection.getMinimumBalanceForRentExemption(mintSpace);
+      // tokenMetadataInitialize reallocs the account to store name/symbol/uri,
+      // so we need lamports for the post-realloc size, not just the extensions.
+      const rentSize = metadataEnabled ? Math.max(mintSpace, 4096) : mintSpace;
+      const lamports = await connection.getMinimumBalanceForRentExemption(rentSize);
 
       const tx = new Transaction().add(
         SystemProgram.createAccount({
