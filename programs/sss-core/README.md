@@ -165,6 +165,34 @@ cargo build --no-default-features --features "quotas,supply-cap"
 
 This allows issuers to strip enforcement modules they don't need, reducing compute budget usage and program size.
 
+## Source Layout
+
+The program follows a modular structure (inspired by [`solana-vault-standard`](https://github.com/solanabr/solana-vault-standard)):
+
+```
+src/
+├── lib.rs              Thin wrapper — declare_id, module declarations, #[program] delegates
+├── constants.rs        PDA seeds (CONFIG_SEED, ROLE_SEED, etc.), role IDs, preset constants
+├── error.rs            SssError enum (19 error codes, 6000–6018)
+├── events.rs           16 typed Anchor event structs
+├── state.rs            StablecoinConfig, RoleEntry, MinterInfo, ReserveAttestation, params
+└── instructions/       One file per instruction (or logical group)
+    ├── mod.rs           Re-exports all instruction modules
+    ├── initialize.rs    initialize
+    ├── roles.rs         grant_role, revoke_role
+    ├── quota.rs         set_minter_quota
+    ├── mint.rs          mint_tokens
+    ├── burn.rs          burn_tokens, burn_from
+    ├── pause.rs         pause, unpause
+    ├── freeze.rs        freeze_token_account, thaw_token_account
+    ├── authority.rs     transfer_authority, accept_authority
+    ├── seize.rs         seize
+    ├── metadata.rs      update_metadata
+    ├── compliance.rs    set_compliance
+    ├── attest.rs        attest_reserve
+    └── view.rs          view_config, view_minter, view_reserve
+```
+
 ## Build & Test
 
 ```bash

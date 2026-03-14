@@ -64,7 +64,7 @@ const sig = await stablecoin.mintTokens({
 
 // Check supply
 const supply = await stablecoin.getSupply();
-console.log("Supply:", supply.uiAmount); // 1
+console.log("Supply:", supply.uiAmountString); // "1.000000"
 ```
 
 ---

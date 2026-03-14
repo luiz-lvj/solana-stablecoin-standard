@@ -92,6 +92,23 @@ The core on-chain program that defines the **StablecoinConfig PDA** — the foun
 
 On `initialize`, the program transfers the mint authority and freeze authority to the config PDA, ensuring all mint/burn/freeze operations must route through the program.
 
+Both on-chain programs follow a modular source layout (inspired by [`solana-vault-standard`](https://github.com/solanabr/solana-vault-standard)):
+
+```
+src/
+├── lib.rs              Thin wrapper — declare_id, module declarations, #[program] delegates
+├── constants.rs        PDA seeds, role IDs, preset constants
+├── error.rs            Custom error enum
+├── events.rs           Typed Anchor events
+├── state.rs            Account structs and instruction params
+└── instructions/       One file per instruction (or logical group)
+    ├── mod.rs
+    ├── initialize.rs
+    ├── roles.rs
+    ├── mint.rs
+    └── ...
+```
+
 ### Layer 4 — CLI and SDK
 
 Both produce the same on-chain transactions. The CLI is for operators (shell-based workflow with TOML config files). The SDK is for developers (programmatic TypeScript API).

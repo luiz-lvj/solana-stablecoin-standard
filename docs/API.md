@@ -107,9 +107,12 @@ Fetch total supply from the blockchain.
 {
   "raw": "10000000",
   "uiAmount": 10.0,
+  "uiAmountString": "10.000000",
   "decimals": 6
 }
 ```
+
+> **Precision note**: `uiAmount` is a JavaScript `number` and loses precision for large supplies (> 2^53 raw units). Use `uiAmountString` for display.
 
 ### `GET /api/v1/balance/:wallet`
 
@@ -126,6 +129,7 @@ Fetch token balance for a wallet.
   "ata": "aw1cQ...",
   "raw": "5000000",
   "uiAmount": 5.0,
+  "uiAmountString": "5.000000",
   "exists": true
 }
 ```
@@ -148,6 +152,7 @@ On-chain mint status.
   "supply": {
     "raw": "10000000",
     "uiAmount": 10.0,
+    "uiAmountString": "10.000000",
     "decimals": 6
   },
   "mintAuthority": "Gxyz...",
@@ -245,7 +250,7 @@ Add a wallet to the blacklist.
 ```
 
 - `wallet` (required): The wallet to blacklist.
-- `reason` (optional): Logged server-side for reference.
+- `reason` (optional): Stored on-chain in the BlacklistEntry PDA for audit compliance, and emitted in the `WalletBlacklisted` event.
 
 **Response:**
 
@@ -283,9 +288,12 @@ Check whether a wallet is blacklisted.
 {
   "wallet": "Dkvvh...",
   "pda": "BLpda...",
-  "blocked": false
+  "blocked": false,
+  "reason": "OFAC match"
 }
 ```
+
+The `reason` field is present when the entry exists and contains the on-chain reason string from the BlacklistEntry PDA.
 
 ---
 

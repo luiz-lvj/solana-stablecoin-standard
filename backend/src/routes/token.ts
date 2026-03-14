@@ -14,6 +14,7 @@ export function tokenRoutes(ctx: SolanaContext): Router {
         supply: {
           raw: status.supply.raw.toString(),
           uiAmount: status.supply.uiAmount,
+          uiAmountString: status.supply.uiAmountString,
           decimals: status.supply.decimals,
         },
         mintAuthority: status.mintAuthority?.toBase58() ?? null,

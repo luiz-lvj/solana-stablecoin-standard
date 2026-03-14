@@ -161,6 +161,29 @@ See the [CLI README](../../cli/README.md) for full details.
 
 ---
 
+## Source Layout
+
+The program follows a modular structure (inspired by [`solana-vault-standard`](https://github.com/solanabr/solana-vault-standard)):
+
+```
+src/
+├── lib.rs              Thin wrapper — declare_id, module declarations, #[program] delegates, fallback
+├── constants.rs        PDA seeds (CONFIG_SEED, BLACKLIST_SEED, EXTRA_ACCOUNT_METAS_SEED)
+├── error.rs            BlacklistError enum (10 error codes, 6000–6009)
+├── events.rs           6 typed Anchor event structs
+├── state.rs            Config, BlacklistEntry (with on-chain reason field)
+└── instructions/       One file per instruction group
+    ├── mod.rs           Re-exports all instruction modules
+    ├── initialize.rs    initialize_config, initialize_extra_account_meta_list
+    ├── blacklist.rs     add_to_blacklist, remove_from_blacklist, close_blacklist_entry
+    ├── admin.rs         transfer_admin, accept_admin
+    └── transfer_hook.rs transfer_hook (CPI entrypoint)
+```
+
+The `fallback` function remains in `lib.rs` because it references the generated `__private::__global::transfer_hook` dispatcher for the `spl-transfer-hook-interface` `Execute` entrypoint.
+
+---
+
 ## Run locally (standalone)
 
 1. Install a matching toolchain:
@@ -180,7 +203,7 @@ anchor test
 
 ## Test suite
 
-The integration tests in `tests/blacklist-hook.ts` cover:
+The test suite includes **26 tests** in `tests/blacklist-hook.ts` covering:
 
 - Creating a Token-2022 mint with the TransferHook extension pointing at this program
 - Initializing the Config and ExtraAccountMetaList PDAs
@@ -197,4 +220,4 @@ The integration tests in `tests/blacklist-hook.ts` cover:
 
 - Add an allowlist mode beside the blocklist mode
 - Optionally combine with default-frozen / freeze-authority controls for issuer-operated compliance
-- Add per-jurisdiction policy logic or reason codes to BlacklistEntry
+- Add per-jurisdiction policy logic to extend the existing `reason` field on BlacklistEntry

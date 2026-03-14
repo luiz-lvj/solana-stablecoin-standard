@@ -37,7 +37,7 @@ export function mintRoutes(ctx: SolanaContext, mintBurnService: MintBurnService)
   router.get("/api/v1/supply", async (_req, res, next) => {
     try {
       const supply = await ctx.stablecoin.getSupply();
-      res.json({ raw: supply.raw.toString(), uiAmount: supply.uiAmount, decimals: supply.decimals });
+      res.json({ raw: supply.raw.toString(), uiAmount: supply.uiAmount, uiAmountString: supply.uiAmountString, decimals: supply.decimals });
     } catch (err) { next(err); }
   });
 
@@ -54,6 +54,7 @@ export function mintRoutes(ctx: SolanaContext, mintBurnService: MintBurnService)
         ata: balance.ata.toBase58(),
         raw: balance.raw.toString(),
         uiAmount: balance.uiAmount,
+        uiAmountString: balance.uiAmountString,
         exists: balance.exists,
       });
     } catch (err) { next(err); }

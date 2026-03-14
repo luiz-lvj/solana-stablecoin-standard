@@ -1,0 +1,31 @@
+use anchor_lang::prelude::*;
+
+use crate::constants::*;
+use crate::error::SssError;
+use crate::events::ComplianceToggled;
+use crate::state::StablecoinConfig;
+
+pub fn handler(ctx: Context<SetComplianceCtx>, enabled: bool) -> Result<()> {
+    ctx.accounts.config.compliance_enabled = enabled;
+
+    emit!(ComplianceToggled {
+        config: ctx.accounts.config.key(),
+        authority: ctx.accounts.authority.key(),
+        enabled,
+    });
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct SetComplianceCtx<'info> {
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        has_one = authority @ SssError::Unauthorized,
+        seeds = [CONFIG_SEED, config.mint.as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, StablecoinConfig>,
+}

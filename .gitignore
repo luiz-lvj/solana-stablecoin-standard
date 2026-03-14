@@ -12,3 +12,12 @@ PR_MESSAGE.md
 target/
 *.so
 test-ledger/
+
+# Keypair files
+wallet.json
+phantom.json
+
+# CLI local config
+cli/config.toml
+cli/sss-token.config.toml
+

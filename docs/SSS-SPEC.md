@@ -125,7 +125,7 @@ The blacklist hook is an Anchor program deployed separately. The mint's Transfer
 | Account | Seeds | Key Fields |
 |---------|-------|------------|
 | Config | `["config", mint]` | `admin`, `pending_admin`, `mint`, `bump`, `_reserved[64]` |
-| BlacklistEntry | `["blacklist", mint, wallet]` | `wallet`, `mint`, `blocked`, `bump`, `_reserved[32]` |
+| BlacklistEntry | `["blacklist", mint, wallet]` | `wallet`, `mint`, `blocked`, `reason` (String, max 128 chars), `bump`, `_reserved[32]` |
 | ExtraAccountMetaList | `["extra-account-metas", mint]` | TLV-encoded account resolution list |
 
 #### 3.3.2 Instructions
@@ -176,7 +176,7 @@ The SSS-Core Anchor program provides on-chain RBAC, per-minter quotas, supply ca
 
 | Account | Seeds | Key Fields |
 |---------|-------|------------|
-| StablecoinConfig | `["sss-config", mint]` | `authority`, `pending_authority`, `mint`, `preset`, `paused`, `compliance_enabled`, `total_minted`, `total_burned`, `total_seized`, `supply_cap`, `bump`, `_reserved[64]` |
+| StablecoinConfig | `["sss-config", mint]` | `authority`, `pending_authority`, `mint`, `preset`, `paused`, `compliance_enabled`, `total_minted`, `total_burned`, `total_seized`, `supply_cap`, `transfer_hook_program: Option<Pubkey>`, `bump`, `_reserved[22]` |
 | RoleEntry | `["role", config, grantee, role_id]` | `config`, `authority`, `role`, `granted_at`, `granted_by`, `bump`, `_reserved[32]` |
 | MinterInfo | `["minter", config, minter]` | `config`, `minter`, `quota`, `total_minted`, `is_active`, `bump`, `_reserved[32]` |
 | ReserveAttestation | `["reserve", config]` | `config`, `attestor`, `reserve_amount`, `source` (max 128 chars), `uri` (max 256 chars), `timestamp`, `bump`, `_reserved[32]` |
@@ -201,7 +201,7 @@ The SSS-Core Anchor program provides on-chain RBAC, per-minter quotas, supply ca
 | `grant_role(role)` | Authority | Creates RoleEntry PDA for a grantee |
 | `revoke_role(role)` | Authority | Closes RoleEntry PDA |
 | `set_minter_quota(quota)` | Authority | Creates/updates MinterInfo with per-minter cap |
-| `mint_tokens(amount)` | Minter (with role) | RBAC-gated mint, enforces quota and supply cap. When `compliance_enabled`, the recipient is checked against the blacklist via `remaining_accounts`; minting to a blacklisted wallet is rejected with `RecipientBlacklisted`. |
+| `mint_tokens(amount)` | Minter (with role) | RBAC-gated mint, enforces quota, supply cap, and zero-amount guard. When `compliance_enabled`, the recipient is checked against the blacklist via a required `recipient_blacklist_entry` account in the instruction context (not `remaining_accounts`); minting to a blacklisted wallet is rejected with `RecipientBlacklisted`. |
 | `burn_tokens(amount)` | Burner (with role) | RBAC-gated burn from the burner's own ATA |
 | `burn_from(amount)` | Burner (with role) | Burn from **any** account using the permanent delegate. Requires `ROLE_BURNER`. |
 | `freeze_token_account` | Freezer (with role) | RBAC-gated freeze |
@@ -254,6 +254,8 @@ All state-changing instructions emit typed Anchor events:
 | 6014 | `RecipientBlacklisted` | The recipient wallet is on the blacklist (SSS-2 mint check) |
 | 6015 | `InvalidMetadataField` | The metadata field name is not one of `name`, `symbol`, or `uri` |
 | 6016 | `ComplianceNotEnabled` | Operation requires `compliance_enabled = true` on the config |
+| 6017 | `ZeroAmount` | Amount must be greater than zero (`mint_tokens`, `burn_tokens`, `burn_from`, `seize`) |
+| 6018 | `HookProgramNotSet` | Transfer hook program not set in config |
 
 ### 4.6 Supply Cap
 
@@ -270,7 +272,7 @@ On `mint_tokens(amount)`:
 
 The `compliance_enabled` boolean on `StablecoinConfig` controls whether `mint_tokens` checks the recipient's blacklist entry. This replaces the earlier hardcoded `preset == PRESET_SSS2` check.
 
-- When `compliance_enabled = true`, `mint_tokens` expects the recipient's `BlacklistEntry` PDA in `remaining_accounts` and rejects with `RecipientBlacklisted` if the wallet is blocked.
+- When `compliance_enabled = true`, `mint_tokens` expects the recipient's `BlacklistEntry` PDA as a **required** `recipient_blacklist_entry` account in the instruction context (not in `remaining_accounts`) and rejects with `RecipientBlacklisted` if the wallet is blocked. This prevents bypassing the check by omitting the account.
 - When `compliance_enabled = false`, no blacklist check is performed during minting.
 - The flag is set at `initialize` time via the `complianceEnabled` parameter and can be toggled at any time by the authority via `set_compliance(enabled)`.
 
