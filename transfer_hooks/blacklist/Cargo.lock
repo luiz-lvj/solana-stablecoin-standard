@@ -347,6 +347,7 @@ dependencies = [
  "spl-token-2022",
  "spl-transfer-hook-interface",
  "spl-type-length-value",
+ "sss-common",
 ]
 
 [[package]]
@@ -2675,6 +2676,10 @@ dependencies = [
  "spl-pod",
  "thiserror 2.0.18",
 ]
+
+[[package]]
+name = "sss-common"
+version = "0.1.0"
 
 [[package]]
 name = "subtle"

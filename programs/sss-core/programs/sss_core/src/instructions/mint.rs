@@ -6,6 +6,9 @@ use crate::error::SssError;
 use crate::events::TokensMinted;
 use crate::state::{MinterInfo, RoleEntry, StablecoinConfig};
 
+/// sha256("account:BlacklistEntry")[0..8]
+const BLACKLIST_ENTRY_DISC: [u8; 8] = [0xda, 0xb3, 0xe7, 0x28, 0x8d, 0x19, 0xa8, 0xbd];
+
 pub fn mint_tokens(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     require!(amount > 0, SssError::ZeroAmount);
     let config = &ctx.accounts.config;
@@ -14,9 +17,36 @@ pub fn mint_tokens(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
 
     #[cfg(feature = "compliance")]
     if config.compliance_enabled {
+        let hook_program = config.transfer_hook_program
+            .ok_or(error!(SssError::HookProgramNotSet))?;
+
         let bl_account = &ctx.accounts.recipient_blacklist_entry;
-        if !bl_account.data_is_empty() && bl_account.data_len() >= 8 + 32 + 32 + 1 {
+        if !bl_account.data_is_empty() {
+            require!(
+                bl_account.owner == &hook_program,
+                SssError::InvalidBlacklistEntry
+            );
+
             let data = bl_account.try_borrow_data()?;
+            require!(
+                data.len() >= 73 && data[..8] == BLACKLIST_ENTRY_DISC,
+                SssError::InvalidBlacklistEntry
+            );
+
+            // Bind to the actual recipient wallet and mint to prevent substitution attacks
+            let entry_wallet = Pubkey::try_from(&data[8..40])
+                .map_err(|_| error!(SssError::InvalidBlacklistEntry))?;
+            let entry_mint = Pubkey::try_from(&data[40..72])
+                .map_err(|_| error!(SssError::InvalidBlacklistEntry))?;
+            require!(
+                entry_wallet == ctx.accounts.recipient_ata.owner,
+                SssError::InvalidBlacklistEntry
+            );
+            require!(
+                entry_mint == ctx.accounts.mint.key(),
+                SssError::InvalidBlacklistEntry
+            );
+
             let blocked = data[8 + 32 + 32] != 0;
             require!(!blocked, SssError::RecipientBlacklisted);
         }
@@ -73,7 +103,7 @@ pub fn mint_tokens(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         .checked_add(amount)
         .ok_or(error!(SssError::MathOverflow))?;
 
-    emit!(TokensMinted {
+    emit_cpi!(TokensMinted {
         config: config.key(),
         mint: ctx.accounts.mint.key(),
         minter: ctx.accounts.minter.key(),
@@ -86,6 +116,7 @@ pub fn mint_tokens(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct MintTokens<'info> {
     pub minter: Signer<'info>,
 

@@ -178,6 +178,15 @@ function parseMinterInfo(data: Buffer): MinterInfoState {
   return { config, minter, quota, totalMinted, isActive, bump };
 }
 
+// ── Event CPI helpers ─────────────────────────────────────────────────
+
+function getEventAuthorityPda(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("__event_authority")],
+    programId,
+  )[0];
+}
+
 // ── SssCoreClient ────────────────────────────────────────────────────
 
 /**
@@ -187,6 +196,7 @@ function parseMinterInfo(data: Buffer): MinterInfoState {
  */
 export class SssCoreClient {
   readonly configPda: PublicKey;
+  private readonly eventAuthority: PublicKey;
 
   private _state: SssConfigState | null = null;
 
@@ -197,6 +207,14 @@ export class SssCoreClient {
     private readonly tokenProgramId: PublicKey = TOKEN_2022_PROGRAM_ID,
   ) {
     [this.configPda] = getSssConfigAddress(mint, programId);
+    this.eventAuthority = getEventAuthorityPda(programId);
+  }
+
+  private eventCpiAccounts(): { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] {
+    return [
+      { pubkey: this.eventAuthority, isSigner: false, isWritable: false },
+      { pubkey: this.programId, isSigner: false, isWritable: false },
+    ];
   }
 
   // ── State caching ──────────────────────────────────────────────────
@@ -254,6 +272,7 @@ export class SssCoreClient {
         { pubkey: this.configPda, isSigner: false, isWritable: true },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -292,6 +311,7 @@ export class SssCoreClient {
         { pubkey: grantee, isSigner: false, isWritable: false },
         { pubkey: rolePda, isSigner: false, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -325,6 +345,7 @@ export class SssCoreClient {
         { pubkey: this.configPda, isSigner: false, isWritable: false },
         { pubkey: grantee, isSigner: false, isWritable: false },
         { pubkey: rolePda, isSigner: false, isWritable: true },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -360,6 +381,7 @@ export class SssCoreClient {
         { pubkey: minter, isSigner: false, isWritable: false },
         { pubkey: minterInfoPda, isSigner: false, isWritable: true },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -409,6 +431,7 @@ export class SssCoreClient {
         { pubkey: recipientAta, isSigner: false, isWritable: true },
         { pubkey: blEntry, isSigner: false, isWritable: false },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -448,6 +471,7 @@ export class SssCoreClient {
         { pubkey: this.mint, isSigner: false, isWritable: true },
         { pubkey: burnerAta, isSigner: false, isWritable: true },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -478,6 +502,7 @@ export class SssCoreClient {
         { pubkey: pauser.publicKey, isSigner: true, isWritable: false },
         { pubkey: this.configPda, isSigner: false, isWritable: true },
         { pubkey: rolePda, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data: disc("pause"),
@@ -506,6 +531,7 @@ export class SssCoreClient {
         { pubkey: pauser.publicKey, isSigner: true, isWritable: false },
         { pubkey: this.configPda, isSigner: false, isWritable: true },
         { pubkey: rolePda, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data: disc("unpause"),
@@ -539,6 +565,7 @@ export class SssCoreClient {
         { pubkey: this.mint, isSigner: false, isWritable: false },
         { pubkey: targetAta, isSigner: false, isWritable: true },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data: disc("freeze_token_account"),
@@ -568,6 +595,7 @@ export class SssCoreClient {
         { pubkey: this.mint, isSigner: false, isWritable: false },
         { pubkey: targetAta, isSigner: false, isWritable: true },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data: disc("thaw_token_account"),
@@ -607,6 +635,7 @@ export class SssCoreClient {
         { pubkey: targetAta, isSigner: false, isWritable: true },
         { pubkey: treasuryAta, isSigner: false, isWritable: true },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -635,6 +664,7 @@ export class SssCoreClient {
       keys: [
         { pubkey: authority.publicKey, isSigner: true, isWritable: false },
         { pubkey: this.configPda, isSigner: false, isWritable: true },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -655,6 +685,7 @@ export class SssCoreClient {
       keys: [
         { pubkey: newAuthority.publicKey, isSigner: true, isWritable: false },
         { pubkey: this.configPda, isSigner: false, isWritable: true },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data: disc("accept_authority"),
@@ -699,6 +730,7 @@ export class SssCoreClient {
         { pubkey: this.configPda, isSigner: false, isWritable: false },
         { pubkey: this.mint, isSigner: false, isWritable: true },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -736,6 +768,7 @@ export class SssCoreClient {
         { pubkey: this.mint, isSigner: false, isWritable: true },
         { pubkey: targetAta, isSigner: false, isWritable: true },
         { pubkey: this.tokenProgramId, isSigner: false, isWritable: false },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,
@@ -766,6 +799,7 @@ export class SssCoreClient {
       keys: [
         { pubkey: authority.publicKey, isSigner: true, isWritable: false },
         { pubkey: this.configPda, isSigner: false, isWritable: true },
+        ...this.eventCpiAccounts(),
       ],
       programId: this.programId,
       data,

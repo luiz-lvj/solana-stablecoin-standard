@@ -32,7 +32,7 @@ pub fn burn_tokens(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         .checked_add(amount)
         .ok_or(error!(SssError::MathOverflow))?;
 
-    emit!(TokensBurned {
+    emit_cpi!(TokensBurned {
         config: config.key(),
         mint: ctx.accounts.mint.key(),
         burner: ctx.accounts.burner.key(),
@@ -75,7 +75,7 @@ pub fn burn_from(ctx: Context<BurnFromCtx>, amount: u64) -> Result<()> {
         .checked_add(amount)
         .ok_or(error!(SssError::MathOverflow))?;
 
-    emit!(TokensBurnedFrom {
+    emit_cpi!(TokensBurnedFrom {
         config: config.key(),
         mint: ctx.accounts.mint.key(),
         burner: ctx.accounts.burner.key(),
@@ -88,6 +88,7 @@ pub fn burn_from(ctx: Context<BurnFromCtx>, amount: u64) -> Result<()> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct BurnTokens<'info> {
     pub burner: Signer<'info>,
 
@@ -120,6 +121,7 @@ pub struct BurnTokens<'info> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct BurnFromCtx<'info> {
     pub burner: Signer<'info>,
 

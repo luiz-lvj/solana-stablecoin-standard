@@ -2951,6 +2951,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "sss-common"
+version = "0.1.0"
+
+[[package]]
 name = "sss-core"
 version = "0.1.0"
 dependencies = [
@@ -2959,6 +2963,7 @@ dependencies = [
  "solana-security-txt",
  "spl-token-2022 7.0.0",
  "spl-token-metadata-interface 0.5.1",
+ "sss-common",
 ]
 
 [[package]]

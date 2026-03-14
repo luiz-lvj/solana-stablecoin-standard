@@ -30,7 +30,7 @@ pub fn freeze_token_account(ctx: Context<FreezeCtx>) -> Result<()> {
         signer_seeds,
     )?;
 
-    emit!(TokenAccountFrozen {
+    emit_cpi!(TokenAccountFrozen {
         config: ctx.accounts.config.key(),
         mint: ctx.accounts.mint.key(),
         freezer: ctx.accounts.freezer.key(),
@@ -63,7 +63,7 @@ pub fn thaw_token_account(ctx: Context<ThawCtx>) -> Result<()> {
         signer_seeds,
     )?;
 
-    emit!(TokenAccountThawed {
+    emit_cpi!(TokenAccountThawed {
         config: ctx.accounts.config.key(),
         mint: ctx.accounts.mint.key(),
         freezer: ctx.accounts.freezer.key(),
@@ -73,6 +73,7 @@ pub fn thaw_token_account(ctx: Context<ThawCtx>) -> Result<()> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct FreezeCtx<'info> {
     pub freezer: Signer<'info>,
 
@@ -99,6 +100,7 @@ pub struct FreezeCtx<'info> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct ThawCtx<'info> {
     pub freezer: Signer<'info>,
 

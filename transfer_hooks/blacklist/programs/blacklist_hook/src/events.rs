@@ -13,6 +13,8 @@ pub struct WalletBlacklisted {
     pub wallet: Pubkey,
     pub authority: Pubkey,
     pub reason: String,
+    pub evidence_hash: [u8; 32],
+    pub evidence_uri: String,
     pub timestamp: i64,
 }
 
@@ -55,4 +57,15 @@ pub struct TransfersPaused {
 pub struct TransfersUnpaused {
     pub config: Pubkey,
     pub admin: Pubkey,
+}
+
+#[event]
+pub struct EvidenceUpdated {
+    pub mint: Pubkey,
+    pub wallet: Pubkey,
+    pub authority: Pubkey,
+    pub previous_hash: [u8; 32],
+    pub new_hash: [u8; 32],
+    pub evidence_uri: String,
+    pub timestamp: i64,
 }

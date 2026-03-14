@@ -7,6 +7,7 @@ use crate::events::{AdminTransferNominated, AdminTransferred};
 use crate::state::Config;
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct TransferAdmin<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -31,7 +32,7 @@ pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<
     let config = &mut ctx.accounts.config;
     config.pending_admin = Some(new_admin);
 
-    emit!(AdminTransferNominated {
+    emit_cpi!(AdminTransferNominated {
         config: ctx.accounts.config.key(),
         current_admin: ctx.accounts.admin.key(),
         pending_admin: new_admin,
@@ -41,6 +42,7 @@ pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct AcceptAdmin<'info> {
     pub new_admin: Signer<'info>,
 
@@ -70,7 +72,7 @@ pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
     config.admin = ctx.accounts.new_admin.key();
     config.pending_admin = None;
 
-    emit!(AdminTransferred {
+    emit_cpi!(AdminTransferred {
         config: ctx.accounts.config.key(),
         previous_admin: previous,
         new_admin: ctx.accounts.new_admin.key(),

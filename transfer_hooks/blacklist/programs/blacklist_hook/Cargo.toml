@@ -19,8 +19,9 @@ overflow-checks = true
 
 
 [dependencies]
-anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-lang = { version = "0.32.1", features = ["init-if-needed", "event-cpi"] }
 anchor-spl = { version = "0.32.1", features = ["token_2022", "token_2022_extensions"] }
+sss-common = { path = "../../../../programs/sss-common" }
 
 # Keep these on the same line
 spl-transfer-hook-interface = "0.10.0"

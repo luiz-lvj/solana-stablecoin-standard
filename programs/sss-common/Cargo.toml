@@ -1,0 +1,12 @@
+[package]
+name = "sss-common"
+version = "0.1.0"
+description = "Shared constants, seeds, and role types for the Solana Stablecoin Standard"
+edition = "2021"
+publish = false
+
+[lib]
+name = "sss_common"
+
+[features]
+default = []

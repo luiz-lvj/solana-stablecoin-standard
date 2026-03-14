@@ -8,7 +8,7 @@ use crate::state::StablecoinConfig;
 pub fn transfer_authority(ctx: Context<TransferAuthorityCtx>, new_authority: Pubkey) -> Result<()> {
     ctx.accounts.config.pending_authority = Some(new_authority);
 
-    emit!(AuthorityNominated {
+    emit_cpi!(AuthorityNominated {
         config: ctx.accounts.config.key(),
         current_authority: ctx.accounts.authority.key(),
         pending_authority: new_authority,
@@ -29,7 +29,7 @@ pub fn accept_authority(ctx: Context<AcceptAuthorityCtx>) -> Result<()> {
     config.authority = pending;
     config.pending_authority = None;
 
-    emit!(AuthorityTransferred {
+    emit_cpi!(AuthorityTransferred {
         config: config.key(),
         old_authority: old,
         new_authority: config.authority,
@@ -38,6 +38,7 @@ pub fn accept_authority(ctx: Context<AcceptAuthorityCtx>) -> Result<()> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct TransferAuthorityCtx<'info> {
     pub authority: Signer<'info>,
 
@@ -51,6 +52,7 @@ pub struct TransferAuthorityCtx<'info> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct AcceptAuthorityCtx<'info> {
     pub new_authority: Signer<'info>,
 

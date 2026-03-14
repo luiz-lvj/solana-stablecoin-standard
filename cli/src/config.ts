@@ -115,6 +115,11 @@ export interface SssConfig {
    * Enabled token extensions and their parameters.
    */
   extensions?: ExtensionsSection;
+  /**
+   * SSS-Core on-chain program ID. When set, the CLI routes mint/burn/freeze/thaw/seize/pause
+   * through the sss-core RBAC program instead of directly through Token-2022.
+   */
+  ssCoreProgramId?: string;
 }
 
 export function defaultConfigPath(): string {
@@ -207,6 +212,9 @@ metadata = "~/.config/solana/id.json"
 ${isSss2
     ? '# Blacklist admin authority (required for SSS-2)\nblacklist = "~/.config/solana/id.json"'
     : '# blacklist = "" # SSS-2 only: blacklist admin authority'}
+
+# SSS-Core program ID — when set, CLI routes operations through RBAC
+# ssCoreProgramId = "4ZFzYcNVDSew79hSAVRdtDuMqe9g4vYh7CFvitPSy5DD"
 
 # Extensions configuration
 

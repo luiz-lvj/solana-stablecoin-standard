@@ -2,13 +2,21 @@ use litesvm::LiteSVM;
 use sha2::{Digest, Sha256};
 use solana_program::system_program;
 use solana_sdk::{
-    instruction::{AccountMeta, Instruction},
+    instruction::{AccountMeta, Instruction, InstructionError},
     pubkey::Pubkey,
     signature::Keypair,
     signer::Signer,
-    transaction::Transaction,
+    transaction::{Transaction, TransactionError},
 };
 use rand::Rng;
+
+fn assert_instruction_error(result: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>) {
+    let err = result.expect_err("Expected transaction to fail");
+    assert!(
+        matches!(&err.err, TransactionError::InstructionError(_, _)),
+        "Expected InstructionError, got: {:?}", err.err
+    );
+}
 
 const HOOK_ID: Pubkey = solana_sdk::pubkey!("84rPjkmmoP3oYZVxjtL2rdcT6hC5Rts6N5XzJTFcJEk6");
 
@@ -41,6 +49,17 @@ fn find_extra_account_metas_pda(mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[EXTRA_ACCOUNT_METAS_SEED, mint.as_ref()], &HOOK_ID)
 }
 
+fn event_authority() -> Pubkey {
+    Pubkey::find_program_address(&[b"__event_authority"], &HOOK_ID).0
+}
+
+fn event_cpi_metas() -> Vec<AccountMeta> {
+    vec![
+        AccountMeta::new_readonly(event_authority(), false),
+        AccountMeta::new_readonly(HOOK_ID, false),
+    ]
+}
+
 fn setup() -> (LiteSVM, Keypair) {
     let mut svm = LiteSVM::new();
     let program_bytes =
@@ -52,20 +71,24 @@ fn setup() -> (LiteSVM, Keypair) {
 }
 
 fn build_initialize_config_ix(admin: &Pubkey, mint: &Pubkey, config: &Pubkey) -> Instruction {
+    let mut accounts = vec![
+        AccountMeta::new(*admin, true),
+        AccountMeta::new_readonly(*mint, false),
+        AccountMeta::new(*config, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: HOOK_ID,
-        accounts: vec![
-            AccountMeta::new(*admin, true),
-            AccountMeta::new_readonly(*mint, false),
-            AccountMeta::new(*config, false),
-            AccountMeta::new_readonly(system_program::id(), false),
-        ],
+        accounts,
         data: ix_disc("initialize_config").to_vec(),
     }
 }
 
 fn build_add_to_blacklist_ix(
     admin: &Pubkey,
+    mint: &Pubkey,
     config: &Pubkey,
     blacklist_entry: &Pubkey,
     wallet: &Pubkey,
@@ -74,25 +97,31 @@ fn build_add_to_blacklist_ix(
     let disc = ix_disc("add_to_blacklist");
     let mut data = disc.to_vec();
     data.extend_from_slice(&wallet.to_bytes());
-    // Borsh serialize the reason String: 4-byte length prefix + bytes
     let reason_bytes = reason.as_bytes();
     data.extend_from_slice(&(reason_bytes.len() as u32).to_le_bytes());
     data.extend_from_slice(reason_bytes);
+    data.extend_from_slice(&[0u8; 32]); // evidence_hash
+    data.extend_from_slice(&0u32.to_le_bytes()); // evidence_uri (empty string)
+
+    let mut accounts = vec![
+        AccountMeta::new(*admin, true),
+        AccountMeta::new_readonly(*mint, false),
+        AccountMeta::new_readonly(*config, false),
+        AccountMeta::new(*blacklist_entry, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+    accounts.extend(event_cpi_metas());
 
     Instruction {
         program_id: HOOK_ID,
-        accounts: vec![
-            AccountMeta::new(*admin, true),
-            AccountMeta::new_readonly(*config, false),
-            AccountMeta::new(*blacklist_entry, false),
-            AccountMeta::new_readonly(system_program::id(), false),
-        ],
+        accounts,
         data,
     }
 }
 
 fn build_remove_from_blacklist_ix(
     admin: &Pubkey,
+    mint: &Pubkey,
     config: &Pubkey,
     blacklist_entry: &Pubkey,
     wallet: &Pubkey,
@@ -101,51 +130,67 @@ fn build_remove_from_blacklist_ix(
     let mut data = disc.to_vec();
     data.extend_from_slice(&wallet.to_bytes());
 
+    let mut accounts = vec![
+        AccountMeta::new(*admin, true),
+        AccountMeta::new_readonly(*mint, false),
+        AccountMeta::new_readonly(*config, false),
+        AccountMeta::new(*blacklist_entry, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: HOOK_ID,
-        accounts: vec![
-            AccountMeta::new(*admin, true),
-            AccountMeta::new_readonly(*config, false),
-            AccountMeta::new(*blacklist_entry, false),
-            AccountMeta::new_readonly(system_program::id(), false),
-        ],
+        accounts,
         data,
     }
 }
 
-fn build_pause_hook_ix(admin: &Pubkey, config: &Pubkey) -> Instruction {
+fn build_pause_hook_ix(admin: &Pubkey, mint: &Pubkey, config: &Pubkey) -> Instruction {
+    let mut accounts = vec![
+        AccountMeta::new_readonly(*admin, true),
+        AccountMeta::new_readonly(*mint, false),
+        AccountMeta::new(*config, false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: HOOK_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*admin, true),
-            AccountMeta::new(*config, false),
-        ],
+        accounts,
         data: ix_disc("pause_hook").to_vec(),
     }
 }
 
-fn build_unpause_hook_ix(admin: &Pubkey, config: &Pubkey) -> Instruction {
+fn build_unpause_hook_ix(admin: &Pubkey, mint: &Pubkey, config: &Pubkey) -> Instruction {
+    let mut accounts = vec![
+        AccountMeta::new_readonly(*admin, true),
+        AccountMeta::new_readonly(*mint, false),
+        AccountMeta::new(*config, false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: HOOK_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*admin, true),
-            AccountMeta::new(*config, false),
-        ],
+        accounts,
         data: ix_disc("unpause_hook").to_vec(),
     }
 }
 
-fn build_transfer_admin_ix(admin: &Pubkey, config: &Pubkey, new_admin: &Pubkey) -> Instruction {
+fn build_transfer_admin_ix(admin: &Pubkey, mint: &Pubkey, config: &Pubkey, new_admin: &Pubkey) -> Instruction {
     let disc = ix_disc("transfer_admin");
     let mut data = disc.to_vec();
     data.extend_from_slice(&new_admin.to_bytes());
 
+    let mut accounts = vec![
+        AccountMeta::new(*admin, true),
+        AccountMeta::new_readonly(*mint, false),
+        AccountMeta::new(*config, false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: HOOK_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*admin, true),
-            AccountMeta::new(*config, false),
-        ],
+        accounts,
         data,
     }
 }
@@ -158,8 +203,6 @@ fn test_initialize_config_invalid_mint_no_crash() {
     let fake_mint = Pubkey::new_unique();
     let (config, _) = find_config_pda(&fake_mint);
 
-    // The mint account doesn't actually exist on-chain as a valid Token-2022 mint,
-    // but the instruction should still not crash the program — it should fail gracefully.
     let ix = build_initialize_config_ix(&admin.pubkey(), &fake_mint, &config);
     let blockhash = svm.latest_blockhash();
     let tx = Transaction::new_signed_with_payer(
@@ -169,7 +212,6 @@ fn test_initialize_config_invalid_mint_no_crash() {
         blockhash,
     );
 
-    // May succeed or fail depending on mint validation, but must not crash
     let _result = svm.send_transaction(tx);
 }
 
@@ -181,9 +223,9 @@ fn test_blacklist_without_config_rejected() {
     let wallet = Pubkey::new_unique();
     let (bl_entry, _) = find_blacklist_pda(&mint, &wallet);
 
-    // Try to blacklist without initializing config first
     let ix = build_add_to_blacklist_ix(
         &admin.pubkey(),
+        &mint,
         &config,
         &bl_entry,
         &wallet,
@@ -198,7 +240,7 @@ fn test_blacklist_without_config_rejected() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "Blacklist without config should fail");
+    assert_instruction_error(result);
 }
 
 #[test]
@@ -207,7 +249,7 @@ fn test_pause_without_config_rejected() {
     let mint = Pubkey::new_unique();
     let (config, _) = find_config_pda(&mint);
 
-    let ix = build_pause_hook_ix(&admin.pubkey(), &config);
+    let ix = build_pause_hook_ix(&admin.pubkey(), &mint, &config);
     let blockhash = svm.latest_blockhash();
     let tx = Transaction::new_signed_with_payer(
         &[ix],
@@ -217,7 +259,7 @@ fn test_pause_without_config_rejected() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "Pause without config should fail");
+    assert_instruction_error(result);
 }
 
 #[test]
@@ -227,7 +269,7 @@ fn test_transfer_admin_without_config_rejected() {
     let (config, _) = find_config_pda(&mint);
     let new_admin = Pubkey::new_unique();
 
-    let ix = build_transfer_admin_ix(&admin.pubkey(), &config, &new_admin);
+    let ix = build_transfer_admin_ix(&admin.pubkey(), &mint, &config, &new_admin);
     let blockhash = svm.latest_blockhash();
     let tx = Transaction::new_signed_with_payer(
         &[ix],
@@ -237,7 +279,7 @@ fn test_transfer_admin_without_config_rejected() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "Transfer admin without config should fail");
+    assert_instruction_error(result);
 }
 
 /// Fuzz: random instruction discriminators don't crash the hook program
@@ -292,18 +334,18 @@ fn fuzz_random_hook_operations() {
             1 => {
                 let wallet = Pubkey::new_unique();
                 let (bl_entry, _) = find_blacklist_pda(&mint, &wallet);
-                build_add_to_blacklist_ix(&admin.pubkey(), &config, &bl_entry, &wallet, "fuzz test")
+                build_add_to_blacklist_ix(&admin.pubkey(), &mint, &config, &bl_entry, &wallet, "fuzz test")
             }
             2 => {
                 let wallet = Pubkey::new_unique();
                 let (bl_entry, _) = find_blacklist_pda(&mint, &wallet);
-                build_remove_from_blacklist_ix(&admin.pubkey(), &config, &bl_entry, &wallet)
+                build_remove_from_blacklist_ix(&admin.pubkey(), &mint, &config, &bl_entry, &wallet)
             }
-            3 => build_pause_hook_ix(&admin.pubkey(), &config),
-            4 => build_unpause_hook_ix(&admin.pubkey(), &config),
+            3 => build_pause_hook_ix(&admin.pubkey(), &mint, &config),
+            4 => build_unpause_hook_ix(&admin.pubkey(), &mint, &config),
             5 => {
                 let new_admin = Pubkey::new_unique();
-                build_transfer_admin_ix(&admin.pubkey(), &config, &new_admin)
+                build_transfer_admin_ix(&admin.pubkey(), &mint, &config, &new_admin)
             }
             _ => unreachable!(),
         };
@@ -322,9 +364,7 @@ fn fuzz_random_hook_operations() {
         }
     }
 
-    // All operations completed without program panic
     assert_eq!(total_ops, 80);
-    // At least some should have been errors (config not initialized, etc.)
     assert!(errors > 0, "Expected some operations to fail gracefully");
 }
 

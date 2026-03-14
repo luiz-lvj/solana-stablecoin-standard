@@ -1,5 +1,11 @@
 import { PublicKey } from "@solana/web3.js";
-import { SolanaStablecoin, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "sss-token-sdk";
+import {
+  SolanaStablecoin,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  getBlacklistAddress,
+} from "sss-token-sdk";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { getConnection, loadKeypair } from "../solana-helpers";
 import type { SssConfig } from "../config";
 import { printResult, printTx, getOutputFormat } from "../output";
@@ -16,21 +22,35 @@ function requireMint(cfg: SssConfig): PublicKey {
   return new PublicKey(m);
 }
 
+function getSsCoreProgramId(cfg: SssConfig): PublicKey | undefined {
+  const id = cfg.ssCoreProgramId?.trim();
+  return id ? new PublicKey(id) : undefined;
+}
+
+function getHookProgramId(cfg: SssConfig): PublicKey | undefined {
+  const hookCfg = cfg.extensions?.transferHook;
+  return hookCfg?.enabled && hookCfg.programId?.trim()
+    ? new PublicKey(hookCfg.programId)
+    : undefined;
+}
+
 function loadStablecoin(cfg: SssConfig): SolanaStablecoin {
   const connection = getConnection(cfg);
   const mint = requireMint(cfg);
   const tokenProgramId = getProgramId(cfg);
-  const hookCfg = cfg.extensions?.transferHook;
-  const transferHookProgramId =
-    hookCfg?.enabled && hookCfg.programId?.trim()
-      ? new PublicKey(hookCfg.programId)
-      : undefined;
+  const transferHookProgramId = getHookProgramId(cfg);
+  const ssCoreProgramId = getSsCoreProgramId(cfg);
 
   return SolanaStablecoin.load(connection, {
     mint,
     tokenProgramId,
     transferHookProgramId,
+    ssCoreProgramId,
   });
+}
+
+function usesRbac(cfg: SssConfig): boolean {
+  return !!getSsCoreProgramId(cfg);
 }
 
 export async function runMint(
@@ -42,12 +62,25 @@ export async function runMint(
   const payer = loadKeypair(cfg.authorities.mint);
   const recipient = new PublicKey(recipientStr);
 
-  const sig = await stable.mintTokens({
-    recipient,
-    amount: amountRaw,
-    minter: payer,
-  });
-  printTx("Minted", { amount: amountRaw.toString(), recipient: recipientStr, tx: sig });
+  if (stable.core) {
+    const recipientAta = getAssociatedTokenAddressSync(
+      stable.mint, recipient, false, stable.tokenProgramId,
+    );
+    let blEntry: PublicKey | undefined;
+    const hookProgramId = getHookProgramId(cfg);
+    if (hookProgramId) {
+      [blEntry] = getBlacklistAddress(stable.mint, recipient, hookProgramId);
+    }
+    const sig = await stable.core.mintTokens(payer, recipientAta, amountRaw, blEntry);
+    printTx("Minted (RBAC)", { amount: amountRaw.toString(), recipient: recipientStr, tx: sig });
+  } else {
+    const sig = await stable.mintTokens({
+      recipient,
+      amount: amountRaw,
+      minter: payer,
+    });
+    printTx("Minted", { amount: amountRaw.toString(), recipient: recipientStr, tx: sig });
+  }
 }
 
 export async function runTransfer(
@@ -73,11 +106,19 @@ export async function runBurn(cfg: SssConfig, amountRaw: bigint): Promise<void> 
   const stable = loadStablecoin(cfg);
   const payer = loadKeypair(cfg.authorities.mint);
 
-  const sig = await stable.burn({
-    amount: amountRaw,
-    owner: payer,
-  });
-  printTx("Burned", { amount: amountRaw.toString(), tx: sig });
+  if (stable.core) {
+    const burnerAta = getAssociatedTokenAddressSync(
+      stable.mint, payer.publicKey, false, stable.tokenProgramId,
+    );
+    const sig = await stable.core.burnTokens(payer, burnerAta, amountRaw);
+    printTx("Burned (RBAC)", { amount: amountRaw.toString(), tx: sig });
+  } else {
+    const sig = await stable.burn({
+      amount: amountRaw,
+      owner: payer,
+    });
+    printTx("Burned", { amount: amountRaw.toString(), tx: sig });
+  }
 }
 
 export async function runFreeze(cfg: SssConfig, tokenAccountStr: string): Promise<void> {
@@ -85,11 +126,16 @@ export async function runFreeze(cfg: SssConfig, tokenAccountStr: string): Promis
   const payer = loadKeypair(cfg.authorities.freeze);
   const tokenAccount = new PublicKey(tokenAccountStr);
 
-  const sig = await stable.freeze({
-    tokenAccount,
-    freezeAuthority: payer,
-  });
-  printTx("Froze", { tokenAccount: tokenAccountStr, tx: sig });
+  if (stable.core) {
+    const sig = await stable.core.freezeAccount(payer, tokenAccount);
+    printTx("Froze (RBAC)", { tokenAccount: tokenAccountStr, tx: sig });
+  } else {
+    const sig = await stable.freeze({
+      tokenAccount,
+      freezeAuthority: payer,
+    });
+    printTx("Froze", { tokenAccount: tokenAccountStr, tx: sig });
+  }
 }
 
 export async function runThaw(cfg: SssConfig, tokenAccountStr: string): Promise<void> {
@@ -97,39 +143,56 @@ export async function runThaw(cfg: SssConfig, tokenAccountStr: string): Promise<
   const payer = loadKeypair(cfg.authorities.freeze);
   const tokenAccount = new PublicKey(tokenAccountStr);
 
-  const sig = await stable.thaw({
-    tokenAccount,
-    freezeAuthority: payer,
-  });
-  printTx("Thawed", { tokenAccount: tokenAccountStr, tx: sig });
+  if (stable.core) {
+    const sig = await stable.core.thawAccount(payer, tokenAccount);
+    printTx("Thawed (RBAC)", { tokenAccount: tokenAccountStr, tx: sig });
+  } else {
+    const sig = await stable.thaw({
+      tokenAccount,
+      freezeAuthority: payer,
+    });
+    printTx("Thawed", { tokenAccount: tokenAccountStr, tx: sig });
+  }
 }
 
 export async function runPause(cfg: SssConfig): Promise<void> {
-  if (cfg.stablecoin.tokenProgram !== "spl-token-2022") {
-    throw new Error("Pause is only supported for Token-2022 mints with Pausable extension.");
-  }
-  const pausePath = cfg.authorities.pause;
-  if (!pausePath?.trim()) throw new Error("Config has no [authorities] pause keypair path.");
-
   const stable = loadStablecoin(cfg);
-  const payer = loadKeypair(pausePath);
 
-  const sig = await stable.pause(payer);
-  printTx("Paused", { mint: requireMint(cfg).toBase58(), tx: sig });
+  if (stable.core) {
+    const pausePath = cfg.authorities.pause || cfg.authorities.mint;
+    const payer = loadKeypair(pausePath);
+    const sig = await stable.core.pause(payer);
+    printTx("Paused (RBAC)", { mint: requireMint(cfg).toBase58(), tx: sig });
+  } else {
+    if (cfg.stablecoin.tokenProgram !== "spl-token-2022") {
+      throw new Error("Pause is only supported for Token-2022 mints with Pausable extension.");
+    }
+    const pausePath = cfg.authorities.pause;
+    if (!pausePath?.trim()) throw new Error("Config has no [authorities] pause keypair path.");
+    const payer = loadKeypair(pausePath);
+    const sig = await stable.pause(payer);
+    printTx("Paused", { mint: requireMint(cfg).toBase58(), tx: sig });
+  }
 }
 
 export async function runUnpause(cfg: SssConfig): Promise<void> {
-  if (cfg.stablecoin.tokenProgram !== "spl-token-2022") {
-    throw new Error("Unpause is only supported for Token-2022 mints with Pausable extension.");
-  }
-  const pausePath = cfg.authorities.pause;
-  if (!pausePath?.trim()) throw new Error("Config has no [authorities] pause keypair path.");
-
   const stable = loadStablecoin(cfg);
-  const payer = loadKeypair(pausePath);
 
-  const sig = await stable.unpause(payer);
-  printTx("Unpaused", { mint: requireMint(cfg).toBase58(), tx: sig });
+  if (stable.core) {
+    const pausePath = cfg.authorities.pause || cfg.authorities.mint;
+    const payer = loadKeypair(pausePath);
+    const sig = await stable.core.unpause(payer);
+    printTx("Unpaused (RBAC)", { mint: requireMint(cfg).toBase58(), tx: sig });
+  } else {
+    if (cfg.stablecoin.tokenProgram !== "spl-token-2022") {
+      throw new Error("Unpause is only supported for Token-2022 mints with Pausable extension.");
+    }
+    const pausePath = cfg.authorities.pause;
+    if (!pausePath?.trim()) throw new Error("Config has no [authorities] pause keypair path.");
+    const payer = loadKeypair(pausePath);
+    const sig = await stable.unpause(payer);
+    printTx("Unpaused", { mint: requireMint(cfg).toBase58(), tx: sig });
+  }
 }
 
 export async function runStatus(cfg: SssConfig): Promise<void> {
@@ -234,20 +297,28 @@ export async function runSeize(
   amountRaw: bigint,
 ): Promise<void> {
   const stable = loadStablecoin(cfg);
-  // Seize requires the authority to be freeze authority + permanent delegate + mint authority.
-  // Prefer permanentDelegate config if available, then fall back to freeze, then mint.
-  const kpPath = cfg.authorities.permanentDelegate?.trim() || cfg.authorities.freeze || cfg.authorities.mint;
-  const authority = loadKeypair(kpPath);
   const targetTokenAccount = new PublicKey(targetTokenAccountStr);
   const treasury = new PublicKey(treasuryStr);
 
-  const sig = await stable.seize({
-    authority,
-    targetTokenAccount,
-    treasury,
-    amount: amountRaw,
-  });
-  printTx("Seized", { targetTokenAccount: targetTokenAccountStr, treasury: treasuryStr, amount: amountRaw.toString(), tx: sig });
+  if (stable.core) {
+    const kpPath = cfg.authorities.permanentDelegate?.trim() || cfg.authorities.freeze || cfg.authorities.mint;
+    const seizer = loadKeypair(kpPath);
+    const treasuryAta = getAssociatedTokenAddressSync(
+      stable.mint, treasury, false, stable.tokenProgramId,
+    );
+    const sig = await stable.core.seize(seizer, targetTokenAccount, treasuryAta, amountRaw);
+    printTx("Seized (RBAC)", { targetTokenAccount: targetTokenAccountStr, treasury: treasuryStr, amount: amountRaw.toString(), tx: sig });
+  } else {
+    const kpPath = cfg.authorities.permanentDelegate?.trim() || cfg.authorities.freeze || cfg.authorities.mint;
+    const authority = loadKeypair(kpPath);
+    const sig = await stable.seize({
+      authority,
+      targetTokenAccount,
+      treasury,
+      amount: amountRaw,
+    });
+    printTx("Seized", { targetTokenAccount: targetTokenAccountStr, treasury: treasuryStr, amount: amountRaw.toString(), tx: sig });
+  }
 }
 
 function getAuthorityKeypairPath(cfg: SssConfig, type: string): string {

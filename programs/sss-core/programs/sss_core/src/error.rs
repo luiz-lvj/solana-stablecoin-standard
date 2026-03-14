@@ -42,4 +42,6 @@ pub enum SssError {
     HookProgramNotSet = 6018,
     #[msg("SSS-2 requires DefaultAccountState::Frozen on the mint")]
     DefaultAccountStateNotFrozen = 6019,
+    #[msg("Invalid blacklist entry: account owner does not match the transfer hook program")]
+    InvalidBlacklistEntry = 6020,
 }

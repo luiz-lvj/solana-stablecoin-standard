@@ -41,8 +41,19 @@ pub mod blacklist_hook {
         ctx: Context<SetBlacklist>,
         wallet: Pubkey,
         reason: String,
+        evidence_hash: [u8; 32],
+        evidence_uri: String,
     ) -> Result<()> {
-        instructions::blacklist::add_to_blacklist(ctx, wallet, reason)
+        instructions::blacklist::add_to_blacklist(ctx, wallet, reason, evidence_hash, evidence_uri)
+    }
+
+    pub fn update_blacklist_evidence(
+        ctx: Context<UpdateEvidence>,
+        wallet: Pubkey,
+        new_evidence_hash: [u8; 32],
+        new_evidence_uri: String,
+    ) -> Result<()> {
+        instructions::blacklist::update_blacklist_evidence(ctx, wallet, new_evidence_hash, new_evidence_uri)
     }
 
     pub fn remove_from_blacklist(ctx: Context<SetBlacklist>, wallet: Pubkey) -> Result<()> {

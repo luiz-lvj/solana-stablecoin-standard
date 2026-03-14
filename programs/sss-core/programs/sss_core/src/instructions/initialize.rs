@@ -84,7 +84,7 @@ pub fn initialize(ctx: Context<Initialize>, params: InitializeParams) -> Result<
         )?;
     }
 
-    emit!(ConfigInitialized {
+    emit_cpi!(ConfigInitialized {
         config: config.key(),
         mint: config.mint,
         authority: config.authority,
@@ -96,6 +96,7 @@ pub fn initialize(ctx: Context<Initialize>, params: InitializeParams) -> Result<
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,

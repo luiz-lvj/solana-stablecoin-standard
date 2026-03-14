@@ -102,7 +102,7 @@ pub fn seize(ctx: Context<SeizeCtx>, amount: u64) -> Result<()> {
         .checked_add(amount)
         .ok_or(error!(SssError::MathOverflow))?;
 
-    emit!(TokensSeized {
+    emit_cpi!(TokensSeized {
         config: config.key(),
         mint: ctx.accounts.mint.key(),
         seizer: ctx.accounts.seizer.key(),
@@ -116,6 +116,7 @@ pub fn seize(ctx: Context<SeizeCtx>, amount: u64) -> Result<()> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct SeizeCtx<'info> {
     pub seizer: Signer<'info>,
 

@@ -37,7 +37,7 @@ The blacklist hook is an Anchor program that must be deployed before the SSS-2 t
 | Account | Seeds | Fields | Purpose |
 |---------|-------|--------|---------|
 | **Config** | `["config", mint]` | `admin`, `pending_admin`, `mint`, `bump`, `_reserved[64]` | Admin authority, two-step transfer state |
-| **BlacklistEntry** | `["blacklist", mint, wallet]` | `wallet`, `mint`, `blocked`, `bump`, `reason` (String, max 128 chars), `_reserved` | Per-wallet, per-mint blacklist flag; `reason` persisted on-chain for audit compliance |
+| **BlacklistEntry** | `["blacklist", mint, wallet]` | `wallet`, `mint`, `blocked`, `reason` (String, max 128), `evidence_hash` ([u8; 32]), `evidence_uri` (String, max 256), `bump` | Per-wallet, per-mint blacklist flag with evidence chain for audit compliance |
 | **ExtraAccountMetaList** | `["extra-account-metas", mint]` | TLV-encoded list | Tells Token-2022 which extra accounts to resolve for the hook |
 
 **Per-mint scoping**: Blacklist PDAs include the mint in their seeds, so each SSS-2 token has an independent blacklist. Blacklisting a wallet on one mint does NOT affect other mints using the same hook program.
@@ -48,8 +48,9 @@ The blacklist hook is an Anchor program that must be deployed before the SSS-2 t
 |-------------|--------|-------------|
 | `initialize_config` | Admin (payer) | Creates the Config PDA |
 | `initialize_extra_account_meta_list` | Admin (payer) | Creates the ExtraAccountMetaList PDA |
-| `add_to_blacklist(wallet, reason)` | Admin | Creates/updates a BlacklistEntry PDA, sets `blocked = true`. `reason` is an optional string stored on-chain. |
+| `add_to_blacklist(wallet, reason, evidence_hash, evidence_uri)` | Admin | Creates/updates a BlacklistEntry PDA, sets `blocked = true`. Stores reason, evidence hash, and URI on-chain. |
 | `remove_from_blacklist(wallet)` | Admin | Updates a BlacklistEntry PDA, sets `blocked = false` |
+| `update_blacklist_evidence(wallet, new_evidence_hash, new_evidence_uri)` | Admin | Updates evidence on a blocked entry. Emits `EvidenceUpdated` with `previous_hash` for immutable audit trail. |
 | `close_blacklist_entry(wallet)` | Admin | Closes an unblocked BlacklistEntry PDA, reclaims rent |
 | `transfer_admin(new_admin)` | Admin | Nominates a new admin (two-step) |
 | `accept_admin()` | Pending admin | Accepts the admin role |
@@ -62,8 +63,9 @@ The blacklist hook is an Anchor program that must be deployed before the SSS-2 t
 | Event | Emitted When |
 |-------|-------------|
 | `ConfigInitialized` | Config PDA created |
-| `WalletBlacklisted` | Wallet added to blacklist. Includes `reason: String` field. |
+| `WalletBlacklisted` | Wallet added to blacklist. Includes `reason`, `evidence_hash`, `evidence_uri`. |
 | `WalletUnblacklisted` | Wallet removed from blacklist |
+| `EvidenceUpdated` | Evidence updated on a blocked entry. Includes `previous_hash`, `new_hash`, `evidence_uri` for audit trail. |
 | `BlacklistEntryClosed` | Blacklist entry PDA closed |
 | `AdminTransferNominated` | New admin nominated |
 | `AdminTransferred` | New admin accepted |
@@ -128,6 +130,8 @@ SSS-2 tokens require `createTransferCheckedWithTransferHookInstruction` instead 
 | Add to blacklist | Admin | `solana-stable blacklist add <wallet> --reason "OFAC SDN"` | `stable.compliance.blacklistAdd(wallet, admin, "OFAC SDN")` |
 | Remove from blacklist | Admin | `solana-stable blacklist remove <wallet>` | `stable.compliance.blacklistRemove(wallet, admin)` |
 | Check blacklist status | Anyone | `solana-stable blacklist check <wallet>` | `stable.compliance.isBlacklisted(wallet)` |
+| Update evidence | Admin | — | `stable.compliance.updateEvidence(wallet, admin, newHash, newUri)` |
+| Batch blacklist add | Admin | — | `stable.compliance.batchBlacklistAdd(admin, entries)` |
 | Close entry (reclaim rent) | Admin | — | `stable.compliance.closeBlacklistEntry(wallet, admin)` |
 | Transfer admin | Admin | — | `stable.compliance.transferAdmin(newAdmin, currentAdmin)` |
 | Accept admin | Pending admin | — | `stable.compliance.acceptAdmin(newAdmin)` |
@@ -141,6 +145,18 @@ The SSS-Core program rejects zero-amount operations with `ZeroAmount` (6017). `m
 ### Blacklist Check on Mint (Required Account)
 
 When `compliance_enabled` is true, SSS-Core's `mint_tokens` instruction requires `recipient_blacklist_entry` as a **required** `UncheckedAccount` in the instruction context — not in `remaining_accounts`. This prevents bypassing the blacklist check by omitting the account.
+
+### Evidence Chain
+
+Each `BlacklistEntry` stores `evidence_hash` ([u8; 32]) and `evidence_uri` (String, max 256 chars). When blacklisting, the admin provides initial evidence. Subsequent updates via `update_blacklist_evidence` emit an `EvidenceUpdated` event containing the `previous_hash`, creating an immutable audit trail — off-chain systems can reconstruct the full evidence history by replaying events.
+
+### CPI Events
+
+All instructions in both `sss-core` and `blacklist_hook` use `emit_cpi!` (Anchor's CPI event emission) instead of `emit!`. This makes events visible to other on-chain programs through CPI, not just off-chain indexers. The `#[event_cpi]` attribute adds two trailing accounts to each instruction: `event_authority` (PDA: `["__event_authority"]`) and the program ID itself.
+
+### Shared Constants (`sss-common`)
+
+Both programs import shared seed, role, and preset constants from `programs/sss-common`. This ensures PDA derivation is consistent across the RBAC core and the compliance hook.
 
 ---
 
@@ -161,9 +177,11 @@ When `compliance_enabled` is true, SSS-Core's `mint_tokens` instruction requires
 | 6010 | `TransfersPaused` | Transfers are paused via `pause_hook` |
 | 6011 | `AlreadyPaused` | Transfers are already paused |
 | 6012 | `NotPaused` | Transfers are not paused; cannot unpause |
+| 6013 | `WalletNotBlocked` | Evidence update requires a blocked entry |
 | 6017 | `ZeroAmount` | `mint_tokens`, `burn_tokens`, `burn_from`, or `seize` was called with `amount == 0` (SSS-Core) |
 | 6018 | `HookProgramNotSet` | Transfer hook program not set on StablecoinConfig (SSS-Core) |
 | 6019 | `DefaultAccountStateNotFrozen` | SSS-2 requires `DefaultAccountState::Frozen` on the mint (SSS-Core) |
+| 6020 | `InvalidBlacklistEntry` | Blacklist entry failed validation: wrong owner, bad discriminator, or wallet/mint mismatch (SSS-Core) |
 
 ---
 

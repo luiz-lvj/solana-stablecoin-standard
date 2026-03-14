@@ -224,6 +224,7 @@ The CLI expects a TOML file with the following structure.
 | `standard` | `"sss-1"` or `"sss-2"` (SSS profile). |
 | `cluster`  | `"devnet"`, `"testnet"`, `"mainnet-beta"`, or a custom label. |
 | `rpcUrl`   | Optional. Overrides the default RPC for the cluster. |
+| `ssCoreProgramId` | Optional. SSS-Core program ID. When set, `operate` and `admin` commands route through the RBAC program instead of directly through Token-2022. |
 
 ### `[stablecoin]`
 
@@ -341,6 +342,8 @@ solana-stable mint <recipient> <amount>           # flat alias
 
 - **`<recipient>`** -- Solana wallet address (base58). Creates the ATA if it doesn't exist.
 - **`<amount>`** -- Amount in **raw units** (smallest decimals). For 6 decimals, `1000000` = 1 token.
+
+When `ssCoreProgramId` is set, minting goes through the sss-core RBAC program (requires a granted `MINTER` role and active minter info). Otherwise, uses SPL Token-2022 directly.
 
 ---
 

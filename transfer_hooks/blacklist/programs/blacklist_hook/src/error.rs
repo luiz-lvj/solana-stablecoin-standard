@@ -28,4 +28,6 @@ pub enum BlacklistError {
     AlreadyPaused = 6011,
     #[msg("Transfers are not paused")]
     NotPaused = 6012,
+    #[msg("Wallet is not blocked — evidence updates require a blocked entry")]
+    WalletNotBlocked = 6013,
 }

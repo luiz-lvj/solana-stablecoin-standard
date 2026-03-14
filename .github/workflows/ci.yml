@@ -101,6 +101,29 @@ jobs:
       - run: anchor test --skip-build
         working-directory: programs/sss-core
 
+  # ── LiteSVM fuzz / integration tests ──────────────────────────
+  litesvm:
+    name: LiteSVM — fuzz & integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: coral-xyz/setup-anchor@v3
+        with:
+          anchor-version: ${{ env.ANCHOR_VERSION }}
+          solana-cli-version: ${{ env.SOLANA_VERSION }}
+      - name: Build sss-core .so
+        run: anchor build
+        working-directory: programs/sss-core
+      - name: Build blacklist_hook .so
+        run: anchor build
+        working-directory: transfer_hooks/blacklist
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tests-litesvm
+      - run: cargo test --release -- --nocapture
+        working-directory: tests-litesvm
+
   # ── Demo ───────────────────────────────────────────────────────
   demo:
     name: Demo — build

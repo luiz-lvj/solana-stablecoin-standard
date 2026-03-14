@@ -36,7 +36,7 @@ pub fn update_metadata(ctx: Context<UpdateMetadataCtx>, params: UpdateMetadataPa
         signer_seeds,
     )?;
 
-    emit!(MetadataUpdated {
+    emit_cpi!(MetadataUpdated {
         config: ctx.accounts.config.key(),
         mint: ctx.accounts.mint.key(),
         authority: ctx.accounts.authority.key(),
@@ -48,6 +48,7 @@ pub fn update_metadata(ctx: Context<UpdateMetadataCtx>, params: UpdateMetadataPa
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct UpdateMetadataCtx<'info> {
     pub authority: Signer<'info>,
 

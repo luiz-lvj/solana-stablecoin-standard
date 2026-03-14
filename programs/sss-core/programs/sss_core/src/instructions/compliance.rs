@@ -8,7 +8,7 @@ use crate::state::StablecoinConfig;
 pub fn set_compliance(ctx: Context<SetComplianceCtx>, enabled: bool) -> Result<()> {
     ctx.accounts.config.compliance_enabled = enabled;
 
-    emit!(ComplianceToggled {
+    emit_cpi!(ComplianceToggled {
         config: ctx.accounts.config.key(),
         authority: ctx.accounts.authority.key(),
         enabled,
@@ -18,6 +18,7 @@ pub fn set_compliance(ctx: Context<SetComplianceCtx>, enabled: bool) -> Result<(
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct SetComplianceCtx<'info> {
     pub authority: Signer<'info>,
 

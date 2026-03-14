@@ -15,7 +15,7 @@ pub fn attest_reserve(ctx: Context<AttestReserveCtx>, params: AttestReserveParam
     attestation.bump = ctx.bumps.attestation;
     attestation._reserved = [0u8; 32];
 
-    emit!(ReserveAttested {
+    emit_cpi!(ReserveAttested {
         config: ctx.accounts.config.key(),
         attestor: ctx.accounts.attestor.key(),
         reserve_amount: attestation.reserve_amount,
@@ -28,6 +28,7 @@ pub fn attest_reserve(ctx: Context<AttestReserveCtx>, params: AttestReserveParam
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct AttestReserveCtx<'info> {
     #[account(mut)]
     pub attestor: Signer<'info>,

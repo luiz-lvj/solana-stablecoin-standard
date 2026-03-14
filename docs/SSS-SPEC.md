@@ -223,7 +223,7 @@ The SSS-Core Anchor program provides on-chain RBAC, per-minter quotas, supply ca
 
 ### 4.4 Events
 
-All state-changing instructions emit typed Anchor events:
+All state-changing instructions emit typed Anchor events via **`emit_cpi!`**, making them visible to other programs through CPI (not just off-chain indexers). Each instruction context uses the `#[event_cpi]` attribute which appends `event_authority` and `program` accounts.
 
 `ConfigInitialized`, `TokensMinted`, `TokensBurned`, `TokensBurnedFrom`, `StablecoinPaused`, `StablecoinUnpaused`, `RoleGranted`, `RoleRevoked`, `MinterQuotaSet`, `AuthorityNominated`, `AuthorityTransferred`, `TokensSeized`, `TokenAccountFrozen`, `TokenAccountThawed`, `MetadataUpdated`, `ComplianceToggled`, `ReserveAttested`
 
@@ -260,6 +260,7 @@ All state-changing instructions emit typed Anchor events:
 | 6017 | `ZeroAmount` | Amount must be greater than zero (`mint_tokens`, `burn_tokens`, `burn_from`, `seize`) |
 | 6018 | `HookProgramNotSet` | Transfer hook program not set in config |
 | 6019 | `DefaultAccountStateNotFrozen` | SSS-2 requires `DefaultAccountState::Frozen` on the mint |
+| 6020 | `InvalidBlacklistEntry` | Blacklist entry account failed validation (wrong owner, bad discriminator, or wallet/mint mismatch) |
 
 ### 4.6 Supply Cap
 
@@ -331,6 +332,16 @@ The **Reserve Attestation** feature enables issuers to record proof-of-reserve d
 
 This provides on-chain transparency for reserve backing while keeping detailed audit documents off-chain. Issuers can update attestations periodically (e.g., monthly) to reflect current reserve levels.
 
+### 4.13 Shared Constants Crate (`sss-common`)
+
+Both `sss-core` and `blacklist_hook` depend on a shared Rust crate, `programs/sss-common`, which exports:
+
+- PDA seed constants for both programs (`SSS_CONFIG_SEED`, `ROLE_SEED`, `MINTER_INFO_SEED`, `RESERVE_SEED`, `HOOK_CONFIG_SEED`, `BLACKLIST_SEED`, `EXTRA_ACCOUNT_METAS_SEED`)
+- Role identifier constants (`ROLE_MINTER` through `ROLE_ATTESTOR`)
+- Preset constants (`PRESET_SSS1`, `PRESET_SSS2`)
+
+Each program re-exports the relevant subset via its own `constants.rs`. This ensures seed/role values never drift between the core RBAC program and the compliance hook.
+
 ---
 
 ## 5. SDK Interface
@@ -366,7 +377,7 @@ Conforming SDK implementations MUST provide:
 
 When the token has a transfer hook (SSS-2), a `compliance` property MUST provide:
 
-`blacklistAdd`, `blacklistRemove`, `closeBlacklistEntry`, `isBlacklisted`, `transferAdmin`, `acceptAdmin`
+`blacklistAdd`, `blacklistRemove`, `updateEvidence`, `closeBlacklistEntry`, `isBlacklisted`, `transferAdmin`, `acceptAdmin`, `batchBlacklistAdd`
 
 ### 5.4 Core Namespace
 

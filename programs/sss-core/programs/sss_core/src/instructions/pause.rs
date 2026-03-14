@@ -9,7 +9,7 @@ pub fn pause(ctx: Context<PauseCtx>) -> Result<()> {
     require!(!ctx.accounts.config.paused, SssError::AlreadyPaused);
     ctx.accounts.config.paused = true;
 
-    emit!(StablecoinPaused {
+    emit_cpi!(StablecoinPaused {
         config: ctx.accounts.config.key(),
         authority: ctx.accounts.pauser.key(),
     });
@@ -20,7 +20,7 @@ pub fn unpause(ctx: Context<UnpauseCtx>) -> Result<()> {
     require!(ctx.accounts.config.paused, SssError::NotPaused);
     ctx.accounts.config.paused = false;
 
-    emit!(StablecoinUnpaused {
+    emit_cpi!(StablecoinUnpaused {
         config: ctx.accounts.config.key(),
         authority: ctx.accounts.pauser.key(),
     });
@@ -28,6 +28,7 @@ pub fn unpause(ctx: Context<UnpauseCtx>) -> Result<()> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct PauseCtx<'info> {
     pub pauser: Signer<'info>,
 
@@ -47,6 +48,7 @@ pub struct PauseCtx<'info> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct UnpauseCtx<'info> {
     pub pauser: Signer<'info>,
 

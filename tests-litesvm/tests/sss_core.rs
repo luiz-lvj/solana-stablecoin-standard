@@ -2,13 +2,31 @@ use litesvm::LiteSVM;
 use sha2::{Digest, Sha256};
 use solana_program::system_program;
 use solana_sdk::{
-    instruction::{AccountMeta, Instruction},
+    instruction::{AccountMeta, Instruction, InstructionError},
     pubkey::Pubkey,
     signature::Keypair,
     signer::Signer,
-    transaction::Transaction,
+    transaction::{Transaction, TransactionError},
 };
 use rand::Rng;
+
+fn assert_custom_error(result: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>, expected_code: u32) {
+    let err = result.expect_err("Expected transaction to fail");
+    match &err.err {
+        TransactionError::InstructionError(_, InstructionError::Custom(code)) => {
+            assert_eq!(*code, expected_code, "Expected custom error {expected_code}, got {code}");
+        }
+        other => panic!("Expected InstructionError::Custom({expected_code}), got: {other:?}"),
+    }
+}
+
+fn assert_instruction_error(result: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>) {
+    let err = result.expect_err("Expected transaction to fail");
+    assert!(
+        matches!(&err.err, TransactionError::InstructionError(_, _)),
+        "Expected InstructionError, got: {:?}", err.err
+    );
+}
 
 const SSS_CORE_ID: Pubkey = solana_sdk::pubkey!("4ZFzYcNVDSew79hSAVRdtDuMqe9g4vYh7CFvitPSy5DD");
 
@@ -31,6 +49,17 @@ fn anchor_disc(namespace: &str, name: &str) -> [u8; 8] {
 
 fn ix_disc(name: &str) -> [u8; 8] {
     anchor_disc("global", name)
+}
+
+fn event_authority() -> Pubkey {
+    Pubkey::find_program_address(&[b"__event_authority"], &SSS_CORE_ID).0
+}
+
+fn event_cpi_metas() -> Vec<AccountMeta> {
+    vec![
+        AccountMeta::new_readonly(event_authority(), false),
+        AccountMeta::new_readonly(SSS_CORE_ID, false),
+    ]
 }
 
 fn find_config_pda(mint: &Pubkey) -> (Pubkey, u8) {
@@ -92,15 +121,18 @@ fn build_initialize_ix(
         None => data.push(0),
     }
 
+    let mut accounts = vec![
+        AccountMeta::new(*authority, true),
+        AccountMeta::new(*mint, false),
+        AccountMeta::new(*config, false),
+        AccountMeta::new_readonly(*token_program, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: SSS_CORE_ID,
-        accounts: vec![
-            AccountMeta::new(*authority, true),
-            AccountMeta::new(*mint, false),
-            AccountMeta::new(*config, false),
-            AccountMeta::new_readonly(*token_program, false),
-            AccountMeta::new_readonly(system_program::id(), false),
-        ],
+        accounts,
         data,
     }
 }
@@ -117,14 +149,18 @@ fn build_grant_role_ix(
     data.extend_from_slice(&target.to_bytes());
     data.push(role);
 
+    let mut accounts = vec![
+        AccountMeta::new(*authority, true),
+        AccountMeta::new_readonly(*config, false),
+        AccountMeta::new_readonly(*target, false),
+        AccountMeta::new(*role_entry, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: SSS_CORE_ID,
-        accounts: vec![
-            AccountMeta::new(*authority, true),
-            AccountMeta::new_readonly(*config, false),
-            AccountMeta::new(*role_entry, false),
-            AccountMeta::new_readonly(system_program::id(), false),
-        ],
+        accounts,
         data,
     }
 }
@@ -132,25 +168,26 @@ fn build_grant_role_ix(
 fn build_set_minter_quota_ix(
     authority: &Pubkey,
     config: &Pubkey,
-    minter_info: &Pubkey,
-    role_entry: &Pubkey,
     minter: &Pubkey,
+    minter_info: &Pubkey,
     quota: u64,
 ) -> Instruction {
     let disc = ix_disc("set_minter_quota");
     let mut data = disc.to_vec();
-    data.extend_from_slice(&minter.to_bytes());
     data.extend_from_slice(&quota.to_le_bytes());
+
+    let mut accounts = vec![
+        AccountMeta::new(*authority, true),
+        AccountMeta::new_readonly(*config, false),
+        AccountMeta::new_readonly(*minter, false),
+        AccountMeta::new(*minter_info, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+    accounts.extend(event_cpi_metas());
 
     Instruction {
         program_id: SSS_CORE_ID,
-        accounts: vec![
-            AccountMeta::new(*authority, true),
-            AccountMeta::new_readonly(*config, false),
-            AccountMeta::new(*minter_info, false),
-            AccountMeta::new_readonly(*role_entry, false),
-            AccountMeta::new_readonly(system_program::id(), false),
-        ],
+        accounts,
         data,
     }
 }
@@ -170,18 +207,21 @@ fn build_mint_tokens_ix(
     let mut data = disc.to_vec();
     data.extend_from_slice(&amount.to_le_bytes());
 
+    let mut accounts = vec![
+        AccountMeta::new_readonly(*minter, true),
+        AccountMeta::new(*config, false),
+        AccountMeta::new_readonly(*role_entry, false),
+        AccountMeta::new(*minter_info, false),
+        AccountMeta::new(*mint, false),
+        AccountMeta::new(*recipient_ata, false),
+        AccountMeta::new_readonly(*blacklist_entry, false),
+        AccountMeta::new_readonly(*token_program, false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: SSS_CORE_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*minter, true),
-            AccountMeta::new(*config, false),
-            AccountMeta::new_readonly(*role_entry, false),
-            AccountMeta::new(*minter_info, false),
-            AccountMeta::new(*mint, false),
-            AccountMeta::new(*recipient_ata, false),
-            AccountMeta::new_readonly(*blacklist_entry, false),
-            AccountMeta::new_readonly(*token_program, false),
-        ],
+        accounts,
         data,
     }
 }
@@ -192,13 +232,16 @@ fn build_pause_ix(
     role_entry: &Pubkey,
 ) -> Instruction {
     let disc = ix_disc("pause");
+    let mut accounts = vec![
+        AccountMeta::new_readonly(*authority, true),
+        AccountMeta::new(*config, false),
+        AccountMeta::new_readonly(*role_entry, false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: SSS_CORE_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*authority, true),
-            AccountMeta::new(*config, false),
-            AccountMeta::new_readonly(*role_entry, false),
-        ],
+        accounts,
         data: disc.to_vec(),
     }
 }
@@ -209,13 +252,16 @@ fn build_unpause_ix(
     role_entry: &Pubkey,
 ) -> Instruction {
     let disc = ix_disc("unpause");
+    let mut accounts = vec![
+        AccountMeta::new_readonly(*authority, true),
+        AccountMeta::new(*config, false),
+        AccountMeta::new_readonly(*role_entry, false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: SSS_CORE_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*authority, true),
-            AccountMeta::new(*config, false),
-            AccountMeta::new_readonly(*role_entry, false),
-        ],
+        accounts,
         data: disc.to_vec(),
     }
 }
@@ -234,16 +280,19 @@ fn build_burn_tokens_ix(
     let mut data = disc.to_vec();
     data.extend_from_slice(&amount.to_le_bytes());
 
+    let mut accounts = vec![
+        AccountMeta::new_readonly(*burner, true),
+        AccountMeta::new(*config, false),
+        AccountMeta::new_readonly(*role_entry, false),
+        AccountMeta::new(*mint, false),
+        AccountMeta::new(*burn_from_ata, false),
+        AccountMeta::new_readonly(*token_program, false),
+    ];
+    accounts.extend(event_cpi_metas());
+
     Instruction {
         program_id: SSS_CORE_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*burner, true),
-            AccountMeta::new(*config, false),
-            AccountMeta::new_readonly(*role_entry, false),
-            AccountMeta::new(*mint, false),
-            AccountMeta::new(*burn_from_ata, false),
-            AccountMeta::new_readonly(*token_program, false),
-        ],
+        accounts,
         data,
     }
 }
@@ -278,7 +327,9 @@ fn test_invalid_preset_rejected() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "Should reject invalid preset");
+    // Anchor rejects with a constraint/deserialization error because the mint
+    // account doesn't exist on-chain as a valid Token-2022 mint.
+    assert_instruction_error(result);
 }
 
 /// Test: zero-amount mint is rejected
@@ -318,7 +369,8 @@ fn test_zero_amount_mint_rejected() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "Zero amount mint should be rejected");
+    // Config PDA doesn't exist → Anchor constraint error before reaching amount check.
+    assert_instruction_error(result);
 }
 
 /// Test: grant_role requires authority signer
@@ -349,10 +401,9 @@ fn test_grant_role_unauthorized() {
         blockhash,
     );
 
-    // Config PDA doesn't exist — this should fail either with account-not-found
-    // or unauthorized. Both are correct rejections.
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "Unauthorized grant_role should fail");
+    // Config PDA doesn't exist → Anchor account constraint error.
+    assert_instruction_error(result);
 }
 
 /// Fuzz test: randomized sequences of pause/unpause with invariant checking
@@ -552,14 +603,12 @@ fn fuzz_shadow_state_invariants() {
             }
             _ => {
                 let minter = Pubkey::new_unique();
-                let (role_entry, _) = find_role_pda(&config, &minter, ROLE_MINTER);
                 let (minter_info, _) = find_minter_info_pda(&config, &minter);
                 build_set_minter_quota_ix(
                     &authority.pubkey(),
                     &config,
-                    &minter_info,
-                    &role_entry,
                     &minter,
+                    &minter_info,
                     rng.gen_range(0..10_000_000_000u64),
                 )
             }

@@ -20,7 +20,7 @@ pub fn set_minter_quota(ctx: Context<SetMinterQuota>, quota: u64) -> Result<()> 
     info.is_active = true;
     info.bump = ctx.bumps.minter_info;
 
-    emit!(MinterQuotaSet {
+    emit_cpi!(MinterQuotaSet {
         config: ctx.accounts.config.key(),
         minter: ctx.accounts.minter.key(),
         quota,
@@ -30,6 +30,7 @@ pub fn set_minter_quota(ctx: Context<SetMinterQuota>, quota: u64) -> Result<()> 
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct SetMinterQuota<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,

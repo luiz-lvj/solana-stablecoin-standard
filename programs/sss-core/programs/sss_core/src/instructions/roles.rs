@@ -17,7 +17,7 @@ pub fn grant_role(ctx: Context<GrantRole>, role: u8) -> Result<()> {
     entry.bump = ctx.bumps.role_entry;
     entry._reserved = [0u8; 32];
 
-    emit!(RoleGranted {
+    emit_cpi!(RoleGranted {
         config: ctx.accounts.config.key(),
         authority: ctx.accounts.authority.key(),
         grantee: ctx.accounts.grantee.key(),
@@ -30,7 +30,7 @@ pub fn grant_role(ctx: Context<GrantRole>, role: u8) -> Result<()> {
 pub fn revoke_role(ctx: Context<RevokeRole>, role: u8) -> Result<()> {
     require!(role <= ROLE_MAX, SssError::InvalidRole);
 
-    emit!(RoleRevoked {
+    emit_cpi!(RoleRevoked {
         config: ctx.accounts.config.key(),
         authority: ctx.accounts.authority.key(),
         grantee: ctx.accounts.grantee.key(),
@@ -41,6 +41,7 @@ pub fn revoke_role(ctx: Context<RevokeRole>, role: u8) -> Result<()> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 #[instruction(role: u8)]
 pub struct GrantRole<'info> {
     #[account(mut)]
@@ -69,6 +70,7 @@ pub struct GrantRole<'info> {
 }
 
 #[derive(Accounts)]
+#[event_cpi]
 #[instruction(role: u8)]
 pub struct RevokeRole<'info> {
     #[account(mut)]

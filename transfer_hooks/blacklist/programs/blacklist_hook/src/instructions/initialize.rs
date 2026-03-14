@@ -9,6 +9,7 @@ use crate::events::ConfigInitialized;
 use crate::state::Config;
 
 #[derive(Accounts)]
+#[event_cpi]
 pub struct InitializeConfig<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -34,7 +35,7 @@ pub fn initialize_config(ctx: Context<InitializeConfig>) -> Result<()> {
     config.paused = false;
     config.bump = ctx.bumps.config;
 
-    emit!(ConfigInitialized {
+    emit_cpi!(ConfigInitialized {
         config: ctx.accounts.config.key(),
         admin: ctx.accounts.admin.key(),
         mint: ctx.accounts.mint.key(),
