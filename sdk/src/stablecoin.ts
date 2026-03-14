@@ -15,10 +15,14 @@ import {
   getAccount,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotent,
+  createAssociatedTokenAccountInstruction,
   createInitializeMint2Instruction,
   createInitializeMetadataPointerInstruction,
   createInitializeTransferHookInstruction,
   createSetAuthorityInstruction,
+  createMintToInstruction,
+  createBurnInstruction,
+  createTransferCheckedWithTransferHookInstruction,
   tokenMetadataInitialize,
   createMint,
   mintTo,
@@ -26,6 +30,8 @@ import {
   freezeAccount,
   thawAccount,
   AuthorityType,
+  TokenAccountNotFoundError,
+  TokenInvalidAccountOwnerError,
 } from "@solana/spl-token";
 import { pause, resume } from "@solana/spl-token";
 
@@ -35,6 +41,8 @@ import type {
   LoadOptions,
   MintOptions,
   BurnOptions,
+  TransferOptions,
+  SeizeOptions,
   FreezeOptions,
   ThawOptions,
   SetAuthorityOptions,
@@ -65,26 +73,34 @@ function toPublicKey(input: Keypair | PublicKey): PublicKey {
 }
 
 /**
+ * Format a bigint token amount as a human-readable decimal string.
+ * Safe for amounts > 2^53 (unlike Number conversion).
+ */
+function formatUiAmount(raw: bigint, decimals: number): string {
+  if (decimals === 0) return raw.toString();
+  const str = raw.toString().padStart(decimals + 1, "0");
+  const intPart = str.slice(0, str.length - decimals);
+  const fracPart = str.slice(str.length - decimals);
+  return `${intPart}.${fracPart}`;
+}
+
+/**
  * Main entry point for the Solana Stablecoin Standard SDK.
  *
  * Use the static factories to get an instance:
- * - `SolanaStablecoin.create()` -- deploy a new stablecoin mint.
- * - `SolanaStablecoin.load()` -- connect to an existing mint.
+ * - `SolanaStablecoin.create()` — deploy a new stablecoin mint.
+ * - `SolanaStablecoin.load()` — connect to an existing mint.
  *
- * Then call instance methods for all token operations.
+ * Then call instance methods for all token operations, or use
+ * the `build*` variants to get unsigned transactions for wallet adapters.
  */
 export class SolanaStablecoin {
-  /** Connection to the Solana cluster. */
   readonly connection: Connection;
-  /** On-chain mint address. */
   readonly mint: PublicKey;
-  /** Token program (TOKEN_PROGRAM_ID or TOKEN_2022_PROGRAM_ID). */
   readonly tokenProgramId: PublicKey;
-  /**
-   * Compliance operations (blacklist). Only available when a transfer-hook
-   * program ID is configured (SSS-2).
-   */
   readonly compliance: Compliance | null;
+
+  private _decimals: number | null = null;
 
   private constructor(
     connection: Connection,
@@ -100,25 +116,12 @@ export class SolanaStablecoin {
       : null;
   }
 
-  // ---------------------------------------------------------------------------
-  // Static factories
-  // ---------------------------------------------------------------------------
+  // ─── Static factories ──────────────────────────────────────────────────────
 
-  /**
-   * Deploy a new stablecoin mint on-chain and return a configured instance.
-   *
-   * @example
-   * ```ts
-   * const stable = await SolanaStablecoin.create(connection, {
-   *   preset: Presets.SSS_1,
-   *   name: "My Dollar",
-   *   symbol: "MUSD",
-   *   decimals: 6,
-   *   authority: adminKeypair,
-   * });
-   * ```
-   */
-  static async create(connection: Connection, opts: CreateOptions): Promise<SolanaStablecoin> {
+  static async create(
+    connection: Connection,
+    opts: CreateOptions,
+  ): Promise<SolanaStablecoin> {
     const decimals = opts.decimals ?? 6;
     const name = opts.name;
     const symbol = opts.symbol;
@@ -134,7 +137,7 @@ export class SolanaStablecoin {
 
     const preset = opts.preset;
     const ext = opts.extensions ?? {};
-    const metadataEnabled = ext.metadata !== false; // default true
+    const metadataEnabled = ext.metadata !== false;
     const transferHookCfg = resolveTransferHook(ext.transferHook, preset);
     const transferHookEnabled = transferHookCfg !== null;
 
@@ -145,7 +148,9 @@ export class SolanaStablecoin {
     }
 
     const useExtensions = metadataEnabled || transferHookEnabled;
-    const tokenProgramId = useExtensions ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+    const tokenProgramId = useExtensions
+      ? TOKEN_2022_PROGRAM_ID
+      : TOKEN_PROGRAM_ID;
 
     let mintPk: PublicKey;
 
@@ -158,7 +163,9 @@ export class SolanaStablecoin {
       if (transferHookEnabled) extensionTypes.push(ExtensionType.TransferHook);
 
       const mintSpace = getMintLen(extensionTypes);
-      const lamports = await connection.getMinimumBalanceForRentExemption(ASSUMED_FINAL_MINT_SIZE);
+      const lamports = await connection.getMinimumBalanceForRentExemption(
+        ASSUMED_FINAL_MINT_SIZE,
+      );
 
       const tx = new Transaction().add(
         SystemProgram.createAccount({
@@ -227,7 +234,11 @@ export class SolanaStablecoin {
 
       if (transferHookEnabled) {
         const hookAdmin = transferHookCfg.admin ?? payer;
-        const compliance = new Compliance(connection, mintPk, transferHookCfg.programId);
+        const compliance = new Compliance(
+          connection,
+          mintPk,
+          transferHookCfg.programId,
+        );
         await compliance.initializeHook(hookAdmin);
       }
     } else {
@@ -243,21 +254,12 @@ export class SolanaStablecoin {
       );
     }
 
-    const hookProgramId = transferHookEnabled ? transferHookCfg.programId : null;
+    const hookProgramId = transferHookEnabled
+      ? transferHookCfg.programId
+      : null;
     return new SolanaStablecoin(connection, mintPk, tokenProgramId, hookProgramId);
   }
 
-  /**
-   * Connect to an existing on-chain mint.
-   *
-   * @example
-   * ```ts
-   * const stable = SolanaStablecoin.load(connection, {
-   *   mint: new PublicKey("7NDka..."),
-   *   transferHookProgramId: new PublicKey("84rPj..."), // optional, for blacklist
-   * });
-   * ```
-   */
   static load(connection: Connection, opts: LoadOptions): SolanaStablecoin {
     const tokenProgramId = opts.tokenProgramId ?? TOKEN_2022_PROGRAM_ID;
     return new SolanaStablecoin(
@@ -268,14 +270,8 @@ export class SolanaStablecoin {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Token operations
-  // ---------------------------------------------------------------------------
+  // ─── Token operations ──────────────────────────────────────────────────────
 
-  /**
-   * Mint tokens to a recipient. Creates the ATA if it doesn't exist.
-   * @returns Transaction signature.
-   */
   async mintTokens(opts: MintOptions): Promise<string> {
     const destAta = await createAssociatedTokenAccountIdempotent(
       this.connection,
@@ -299,17 +295,15 @@ export class SolanaStablecoin {
     );
   }
 
-  /**
-   * Burn tokens. Burns from the owner's ATA unless `tokenAccount` is specified.
-   * @returns Transaction signature.
-   */
   async burn(opts: BurnOptions): Promise<string> {
-    const sourceAta = opts.tokenAccount ?? getAssociatedTokenAddressSync(
-      this.mint,
-      opts.owner.publicKey,
-      false,
-      this.tokenProgramId,
-    );
+    const sourceAta =
+      opts.tokenAccount ??
+      getAssociatedTokenAddressSync(
+        this.mint,
+        opts.owner.publicKey,
+        false,
+        this.tokenProgramId,
+      );
 
     return burn(
       this.connection,
@@ -325,9 +319,166 @@ export class SolanaStablecoin {
   }
 
   /**
-   * Freeze a token account.
-   * @returns Transaction signature.
+   * Transfer tokens with hook support (SSS-2). Automatically resolves
+   * extra accounts required by the transfer hook.
    */
+  async transfer(opts: TransferOptions): Promise<string> {
+    const sourceAta =
+      opts.sourceTokenAccount ??
+      getAssociatedTokenAddressSync(
+        this.mint,
+        opts.owner.publicKey,
+        false,
+        this.tokenProgramId,
+      );
+
+    const destAta =
+      opts.destinationTokenAccount ??
+      getAssociatedTokenAddressSync(
+        this.mint,
+        opts.destination,
+        false,
+        this.tokenProgramId,
+      );
+
+    const tx = new Transaction();
+
+    const destInfo = await this.connection.getAccountInfo(destAta);
+    if (!destInfo) {
+      tx.add(
+        createAssociatedTokenAccountInstruction(
+          opts.owner.publicKey,
+          destAta,
+          opts.destination,
+          this.mint,
+          this.tokenProgramId,
+        ),
+      );
+    }
+
+    const transferIx =
+      await createTransferCheckedWithTransferHookInstruction(
+        this.connection,
+        sourceAta,
+        this.mint,
+        destAta,
+        opts.owner.publicKey,
+        opts.amount,
+        opts.decimals,
+        [],
+        "confirmed",
+        this.tokenProgramId,
+      );
+    tx.add(transferIx);
+
+    return sendAndConfirmTransaction(this.connection, tx, [opts.owner], {
+      commitment: "confirmed",
+    });
+  }
+
+  /**
+   * Build an unsigned transfer transaction (for wallet adapter / Phantom).
+   * Caller signs and sends.
+   */
+  async buildTransferTransaction(
+    owner: PublicKey,
+    destination: PublicKey,
+    amount: bigint,
+    decimals: number,
+  ): Promise<Transaction> {
+    const sourceAta = getAssociatedTokenAddressSync(
+      this.mint,
+      owner,
+      false,
+      this.tokenProgramId,
+    );
+    const destAta = getAssociatedTokenAddressSync(
+      this.mint,
+      destination,
+      false,
+      this.tokenProgramId,
+    );
+
+    const tx = new Transaction();
+
+    const destInfo = await this.connection.getAccountInfo(destAta);
+    if (!destInfo) {
+      tx.add(
+        createAssociatedTokenAccountInstruction(
+          owner,
+          destAta,
+          destination,
+          this.mint,
+          this.tokenProgramId,
+        ),
+      );
+    }
+
+    const transferIx =
+      await createTransferCheckedWithTransferHookInstruction(
+        this.connection,
+        sourceAta,
+        this.mint,
+        destAta,
+        owner,
+        amount,
+        decimals,
+        [],
+        "confirmed",
+        this.tokenProgramId,
+      );
+    tx.add(transferIx);
+
+    return tx;
+  }
+
+  /**
+   * Build an unsigned mint transaction (for wallet adapter / Phantom).
+   */
+  async buildMintTransaction(
+    payer: PublicKey,
+    recipient: PublicKey,
+    amount: bigint,
+  ): Promise<Transaction> {
+    const ata = getAssociatedTokenAddressSync(
+      this.mint,
+      recipient,
+      false,
+      this.tokenProgramId,
+    );
+    const tx = new Transaction();
+    const ataInfo = await this.connection.getAccountInfo(ata);
+    if (!ataInfo) {
+      tx.add(
+        createAssociatedTokenAccountInstruction(
+          payer,
+          ata,
+          recipient,
+          this.mint,
+          this.tokenProgramId,
+        ),
+      );
+    }
+    tx.add(createMintToInstruction(this.mint, ata, payer, amount, [], this.tokenProgramId));
+    return tx;
+  }
+
+  /**
+   * Build an unsigned burn transaction (for wallet adapter / Phantom).
+   */
+  buildBurnTransaction(
+    owner: PublicKey,
+    amount: bigint,
+    tokenAccount?: PublicKey,
+  ): Transaction {
+    const ata =
+      tokenAccount ??
+      getAssociatedTokenAddressSync(this.mint, owner, false, this.tokenProgramId);
+    return new Transaction().add(
+      createBurnInstruction(ata, this.mint, owner, amount, [], this.tokenProgramId),
+    );
+  }
+
   async freeze(opts: FreezeOptions): Promise<string> {
     return freezeAccount(
       this.connection,
@@ -341,10 +492,6 @@ export class SolanaStablecoin {
     );
   }
 
-  /**
-   * Thaw a frozen token account.
-   * @returns Transaction signature.
-   */
   async thaw(opts: ThawOptions): Promise<string> {
     return thawAccount(
       this.connection,
@@ -358,10 +505,6 @@ export class SolanaStablecoin {
     );
   }
 
-  /**
-   * Pause the mint (Token-2022 Pausable extension).
-   * @returns Transaction signature.
-   */
   async pause(authority: Keypair): Promise<string> {
     return pause(
       this.connection,
@@ -374,10 +517,6 @@ export class SolanaStablecoin {
     );
   }
 
-  /**
-   * Unpause the mint (Token-2022 Pausable extension).
-   * @returns Transaction signature.
-   */
   async unpause(authority: Keypair): Promise<string> {
     return resume(
       this.connection,
@@ -390,10 +529,6 @@ export class SolanaStablecoin {
     );
   }
 
-  /**
-   * Change an on-chain authority (mint, freeze, metadata, pause, etc.).
-   * @returns Transaction signature.
-   */
   async setAuthority(opts: SetAuthorityOptions): Promise<string> {
     const authorityType = AUTHORITY_TYPE_MAP[opts.type];
     if (authorityType === undefined) {
@@ -421,47 +556,89 @@ export class SolanaStablecoin {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Read operations
-  // ---------------------------------------------------------------------------
+  // ─── Read operations ───────────────────────────────────────────────────────
 
-  /** Fetch total supply. */
+  async getDecimals(): Promise<number> {
+    if (this._decimals !== null) return this._decimals;
+    const mintInfo = await getMint(
+      this.connection,
+      this.mint,
+      undefined,
+      this.tokenProgramId,
+    );
+    this._decimals = mintInfo.decimals;
+    return mintInfo.decimals;
+  }
+
   async getSupply(): Promise<SupplyInfo> {
-    const mintInfo = await getMint(this.connection, this.mint, undefined, this.tokenProgramId);
+    const mintInfo = await getMint(
+      this.connection,
+      this.mint,
+      undefined,
+      this.tokenProgramId,
+    );
     const dec = mintInfo.decimals;
     return {
       raw: mintInfo.supply,
       uiAmount: Number(mintInfo.supply) / Math.pow(10, dec),
+      uiAmountString: formatUiAmount(mintInfo.supply, dec),
       decimals: dec,
     };
   }
 
-  /** Fetch balance of a wallet for this mint. */
   async getBalance(wallet: PublicKey): Promise<BalanceInfo> {
-    const ata = getAssociatedTokenAddressSync(this.mint, wallet, false, this.tokenProgramId);
+    const ata = getAssociatedTokenAddressSync(
+      this.mint,
+      wallet,
+      false,
+      this.tokenProgramId,
+    );
     try {
-      const account = await getAccount(this.connection, ata, undefined, this.tokenProgramId);
-      const dec = (await getMint(this.connection, this.mint, undefined, this.tokenProgramId)).decimals;
+      const account = await getAccount(
+        this.connection,
+        ata,
+        undefined,
+        this.tokenProgramId,
+      );
+      const dec = await this.getDecimals();
       return {
         raw: account.amount,
         uiAmount: Number(account.amount) / Math.pow(10, dec),
+        uiAmountString: formatUiAmount(account.amount, dec),
         ata,
         exists: true,
       };
-    } catch {
-      return { raw: 0n, uiAmount: 0, ata, exists: false };
+    } catch (e: unknown) {
+      if (
+        e instanceof TokenAccountNotFoundError ||
+        e instanceof TokenInvalidAccountOwnerError
+      ) {
+        return {
+          raw: 0n,
+          uiAmount: 0,
+          uiAmountString: "0",
+          ata,
+          exists: false,
+        };
+      }
+      throw e;
     }
   }
 
-  /** Fetch on-chain mint status (supply, authorities). */
   async getStatus(): Promise<TokenStatus> {
-    const mintInfo = await getMint(this.connection, this.mint, undefined, this.tokenProgramId);
+    const mintInfo = await getMint(
+      this.connection,
+      this.mint,
+      undefined,
+      this.tokenProgramId,
+    );
     const dec = mintInfo.decimals;
     return {
       mint: this.mint,
       supply: {
         raw: mintInfo.supply,
         uiAmount: Number(mintInfo.supply) / Math.pow(10, dec),
+        uiAmountString: formatUiAmount(mintInfo.supply, dec),
         decimals: dec,
       },
       mintAuthority: mintInfo.mintAuthority,
@@ -469,13 +646,12 @@ export class SolanaStablecoin {
     };
   }
 
-  /**
-   * Fetch recent transaction signatures involving this mint.
-   * @param limit Number of signatures to fetch (default 20, max 1000).
-   */
   async getAuditLog(limit = 20): Promise<AuditLogEntry[]> {
     const capped = Math.max(1, Math.min(1000, limit));
-    const signatures = await this.connection.getSignaturesForAddress(this.mint, { limit: capped });
+    const signatures = await this.connection.getSignaturesForAddress(
+      this.mint,
+      { limit: capped },
+    );
 
     return signatures.map((sig) => ({
       signature: sig.signature,
@@ -489,13 +665,11 @@ export class SolanaStablecoin {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
+// ─── Internal helpers ────────────────────────────────────────────────────────
 
 function resolveTransferHook(
   input: boolean | TransferHookConfig | undefined,
-  preset: Presets | undefined,
+  _preset: Presets | undefined,
 ): TransferHookConfig | null {
   if (input === false || input === undefined) {
     return null;

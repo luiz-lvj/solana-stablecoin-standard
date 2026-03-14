@@ -37,7 +37,7 @@ SSS-2 provides the on-chain primitives to implement these requirements. The actu
 │                                                          │
 │  Token-2022 ──CPI──> Blacklist Hook Program              │
 │                      ├── Config PDA (admin authority)    │
-│                      ├── BlacklistEntry PDAs (per wallet)│
+│                      ├── BlacklistEntry PDAs (per mint+wallet)│
 │                      └── ExtraAccountMetaList PDA        │
 │                                                          │
 │  Every TransferChecked:                                  │
@@ -135,7 +135,7 @@ Anyone can verify whether a wallet is blacklisted by reading the BlacklistEntry 
 
 ```typescript
 const [pda] = PublicKey.findProgramAddressSync(
-  [Buffer.from("blacklist"), wallet.toBuffer()],
+  [Buffer.from("blacklist"), mint.toBuffer(), wallet.toBuffer()],
   hookProgramId,
 );
 const info = await connection.getAccountInfo(pda);

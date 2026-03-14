@@ -266,6 +266,30 @@ await stablecoin.setAuthority({
 });
 ```
 
+### Transfer (SSS-2)
+
+For SSS-2 tokens, use `transfer()` to automatically resolve extra accounts for the hook:
+
+```typescript
+await stablecoin.transfer({
+  owner: senderKeypair,
+  destination: recipientPublicKey,
+  amount: 1_000_000n,
+  decimals: 6,
+});
+```
+
+### Build unsigned transactions (wallet adapter)
+
+For browser environments where the wallet signs:
+
+```typescript
+const tx = await stablecoin.buildMintTransaction(payerPubkey, recipientPubkey, 1_000_000n);
+const tx2 = await stablecoin.buildTransferTransaction(ownerPubkey, destPubkey, 500_000n, 6);
+const tx3 = stablecoin.buildBurnTransaction(ownerPubkey, 250_000n);
+// Sign with wallet adapter, then send
+```
+
 ---
 
 ## Read operations
@@ -276,14 +300,16 @@ Read operations send **no transactions**; they only query on-chain state.
 
 ```typescript
 const supply = await stablecoin.getSupply();
-// { raw: 10000000n, uiAmount: 10, decimals: 6 }
+// { raw: 10000000n, uiAmount: 10, uiAmountString: "10.000000", decimals: 6 }
 ```
+
+`uiAmountString` provides full precision for amounts > 2^53.
 
 ### Get balance
 
 ```typescript
 const balance = await stablecoin.getBalance(walletPublicKey);
-// { raw: 5000000n, uiAmount: 5, ata: PublicKey, exists: true }
+// { raw: 5000000n, uiAmount: 5, uiAmountString: "5.000000", ata: PublicKey, exists: true }
 ```
 
 ### Get status
@@ -332,6 +358,15 @@ const sig = await stablecoin.compliance.blacklistRemove(
 );
 ```
 
+### Close blacklist entry (reclaim rent)
+
+```typescript
+const sig = await stablecoin.compliance.closeBlacklistEntry(
+  wallet,           // must be unblocked first
+  blacklistAdmin,
+);
+```
+
 ### Check blacklist status
 
 ```typescript
@@ -339,11 +374,30 @@ const status = await stablecoin.compliance.isBlacklisted(walletPublicKey);
 // { wallet, pda, blocked: true }
 ```
 
-This is read-only -- no transaction is sent.
+This is read-only -- no transaction is sent. Missing PDAs (wallet never blacklisted) return `blocked: false`.
+
+### Two-step admin transfer
+
+```typescript
+// Current admin nominates new admin
+await stablecoin.compliance.transferAdmin(newAdminPubkey, currentAdmin);
+
+// New admin accepts
+await stablecoin.compliance.acceptAdmin(newAdminKeypair);
+```
 
 ### PDA helpers
 
-For building custom transactions or debugging:
+Standalone exports for custom transaction building:
+
+```typescript
+import { getConfigAddress, getBlacklistAddress, getExtraAccountMetasAddress } from "sss-token-sdk";
+
+const [configPda, bump] = getConfigAddress(mint, hookProgramId);
+const [blacklistPda] = getBlacklistAddress(mint, wallet, hookProgramId);
+```
+
+Instance helpers:
 
 ```typescript
 stablecoin.compliance.getConfigPda();
@@ -406,8 +460,8 @@ stablecoin.compliance.getExtraAccountMetasPda();
 
 | Type | Fields |
 |------|--------|
-| `SupplyInfo` | `raw: bigint`, `uiAmount: number`, `decimals: number` |
-| `BalanceInfo` | `raw: bigint`, `uiAmount: number`, `ata: PublicKey`, `exists: boolean` |
+| `SupplyInfo` | `raw: bigint`, `uiAmount: number`, `uiAmountString: string`, `decimals: number` |
+| `BalanceInfo` | `raw: bigint`, `uiAmount: number`, `uiAmountString: string`, `ata: PublicKey`, `exists: boolean` |
 | `TokenStatus` | `mint: PublicKey`, `supply: SupplyInfo`, `mintAuthority`, `freezeAuthority` |
 | `AuditLogEntry` | `signature: string`, `slot: number`, `err: unknown`, `blockTime: Date \| null` |
 | `BlacklistStatus` | `wallet: PublicKey`, `pda: PublicKey`, `blocked: boolean` |

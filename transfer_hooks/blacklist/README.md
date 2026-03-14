@@ -1,6 +1,6 @@
 # Blacklist Transfer Hook
 
-A Token-2022 **transfer-hook** program written in Anchor. The hook is invoked automatically on every `transferChecked` call and blocks the transfer if the source wallet owner or destination wallet owner is present in an on-chain blacklist.
+A Token-2022 **transfer-hook** program written in Anchor. The hook is invoked automatically on every `transferChecked` call and blocks the transfer if the source wallet owner or destination wallet owner is present in an on-chain blacklist for that mint.
 
 This program powers the **SSS-2** profile of the [Solana Stablecoin Standard](https://superteam.fun/earn/listing/build-the-solana-stablecoin-standard-bounty) and is managed through the [`sss-token` CLI](../../cli/README.md).
 
@@ -12,9 +12,18 @@ This program powers the **SSS-2** profile of the [Solana Stablecoin Standard](ht
 
 | Account | Seeds | Description |
 |---------|-------|-------------|
-| **Config** | `["config", mint]` | Stores the admin authority pubkey, the mint pubkey, and a bump. Created once per mint via `initialize_config`. |
-| **BlacklistEntry** | `["blacklist", wallet]` | Per-wallet record with a `blocked: bool` flag and a bump. Created on first `add_to_blacklist` call; toggled (not closed) by `remove_from_blacklist`. |
+| **Config** | `["config", mint]` | Stores the admin authority, optional pending admin, mint, bump, and reserved space. Created once per mint via `initialize_config`. |
+| **BlacklistEntry** | `["blacklist", mint, wallet]` | Per-mint, per-wallet record with `blocked: bool` and bump. Each mint has its own independent blacklist. Created on first `add_to_blacklist`; unblocked by `remove_from_blacklist`; closed by `close_blacklist_entry` when not blocked. |
 | **ExtraAccountMetaList** | `["extra-account-metas", mint]` | TLV account that tells Token-2022 which extra accounts the hook's `Execute` entrypoint needs. Created once via `initialize_extra_account_meta_list`. |
+
+### Account layouts
+
+| Account | Layout (bytes) |
+|---------|----------------|
+| **Config** | admin (32) + pending_admin `Option<Pubkey>` (33) + mint (32) + bump (1) + _reserved (64) |
+| **BlacklistEntry** | wallet (32) + mint (32) + blocked (1) + bump (1) + _reserved (32) |
+
+The `_reserved` fields are reserved for future upgrades and must not be used by clients.
 
 ### Instructions
 
@@ -22,9 +31,12 @@ This program powers the **SSS-2** profile of the [Solana Stablecoin Standard](ht
 |-------------|-------------|--------------|
 | `initialize_config` | Any signer (becomes admin) | Creates the Config PDA, recording the admin and the mint. |
 | `initialize_extra_account_meta_list` | Any signer (payer) | Allocates the TLV account so Token-2022 can resolve extra accounts at transfer time. |
-| `add_to_blacklist(wallet)` | Admin only | Sets `blocked = true` on the wallet's BlacklistEntry PDA (creates it if needed via `init_if_needed`). |
-| `remove_from_blacklist(wallet)` | Admin only | Sets `blocked = false` on the wallet's BlacklistEntry PDA (does **not** close the account so the hook can still resolve it). |
-| `transfer_hook(amount)` | Token-2022 CPI | Called automatically during `transferChecked`. Reads source/destination token-account owners, derives their BlacklistEntry PDAs, and returns an error if either is blocked. |
+| `add_to_blacklist(wallet)` | Admin only | Sets `blocked = true` on the wallet's BlacklistEntry PDA for this mint (creates it if needed via `init_if_needed`). |
+| `remove_from_blacklist(wallet)` | Admin only | Sets `blocked = false` on the BlacklistEntry PDA. Does **not** close the account. |
+| `close_blacklist_entry(wallet)` | Admin only | Closes the BlacklistEntry PDA and reclaims rent to the admin. **Fails** if the entry is still blocked. |
+| `transfer_admin(new_admin)` | Admin only | Nominates a new admin. The new admin must call `accept_admin` to complete the handover. |
+| `accept_admin` | Pending admin only | Accepts the admin role. Completes the two-step admin transfer. |
+| `transfer_hook(amount)` | Token-2022 CPI | Called automatically during `transferChecked`. Validates invocation context, reads source/destination owners, derives BlacklistEntry PDAs, and returns an error if either is blocked. |
 
 ### Transfer hook flow
 
@@ -33,22 +45,99 @@ User calls transferChecked (Token-2022)
   │
   ├─ Token-2022 resolves ExtraAccountMetaList for the mint
   │   → config PDA, source blacklist PDA, destination blacklist PDA
+  │   (Blacklist PDAs derived as ["blacklist", mint, owner])
   │
   └─ Token-2022 CPIs into blacklist_hook::transfer_hook
        │
+       ├─ Validates ExtraAccountMetaList PDA
        ├─ Unpacks source & destination token-account data (owner at offset 32)
-       ├─ Derives expected BlacklistEntry PDAs from owner pubkeys
-       ├─ If either entry has blocked == true → error: Blacklisted
+       ├─ Verifies TransferHookAccount.transferring on source → prevents direct invocation
+       ├─ Derives expected BlacklistEntry PDAs: ["blacklist", mint, owner]
+       ├─ For each blacklist account: if data_is_empty() or owner != program → not blacklisted
+       ├─ If either entry has blocked == true → error: SenderBlacklisted / RecipientBlacklisted
        └─ Otherwise → transfer proceeds
 ```
 
+### PDA derivation examples
+
+**Config** (per mint):
+
+```
+seeds = ["config", mint_pubkey]
+program_id = blacklist_hook program
+```
+
+**BlacklistEntry** (per mint, per wallet):
+
+```
+seeds = ["blacklist", mint_pubkey, wallet_pubkey]
+program_id = blacklist_hook program
+```
+
+Example (pseudocode):
+
+```
+config_pda = PDA(program_id, ["config", mint])
+blacklist_entry_pda = PDA(program_id, ["blacklist", mint, wallet])
+```
+
+### Missing blacklist PDAs = not blacklisted
+
+Wallets that were **never** added to the blacklist do not need pre-initialized PDAs. The hook checks each blacklist account with `data_is_empty() || owner != program` and treats such accounts as **not blacklisted**. This avoids requiring every possible sender/recipient to have a PDA created upfront.
+
+### Direct invocation prevention
+
+The hook verifies `TransferHookAccount.transferring` on the source token account. If this flag is not set, the hook returns `NotTransferring`. This ensures the hook is only invoked via CPI from Token-2022 during a real transfer, not by arbitrary direct calls.
+
 ### Why blacklist by wallet owner, not token account
 
-The hook reads the **owner** field from the raw token-account data at offset `32..64` and derives the BlacklistEntry PDA from the owner's pubkey. This means a single blacklist entry covers **all** token accounts owned by that wallet, not just one specific ATA.
+The hook reads the **owner** field from the raw token-account data at offset `32..64` and derives the BlacklistEntry PDA from the owner's pubkey. A single blacklist entry covers **all** token accounts owned by that wallet for the given mint.
 
-### Why `remove_from_blacklist` does not close the PDA
+### Why per-mint blacklists
 
-The ExtraAccountMetaList tells Token-2022 to resolve BlacklistEntry PDAs from on-chain data at transfer time. If the PDA is closed (account doesn't exist), the resolution fails and every transfer would break. Keeping the PDA alive with `blocked = false` avoids this problem and makes re-blacklisting cheaper (no new allocation).
+BlacklistEntry PDAs use seeds `["blacklist", mint, wallet]`, so each mint has its own independent blacklist. One project's stablecoin blacklist does not affect another's. The same wallet can be blacklisted for mint A but not for mint B.
+
+### Two-step admin transfer
+
+Admin rotation uses `transfer_admin(new_admin)` followed by `accept_admin()`. The current admin nominates a new admin; the new admin must sign `accept_admin` to complete the handover. This prevents bricking the hook if the admin key is lost by accident—the pending admin can still accept.
+
+### Close blacklist entry
+
+`close_blacklist_entry(wallet)` closes the BlacklistEntry PDA and returns rent to the admin. It **fails** with `CannotCloseBlockedEntry` if the entry is still blocked. Unblock the wallet with `remove_from_blacklist` first, then close to reclaim rent.
+
+---
+
+## Events
+
+The program emits typed Anchor events on every state change:
+
+| Event | When |
+|-------|------|
+| `ConfigInitialized` | Config PDA created |
+| `WalletBlacklisted` | Wallet added to blacklist |
+| `WalletUnblacklisted` | Wallet removed from blacklist |
+| `BlacklistEntryClosed` | BlacklistEntry PDA closed |
+| `AdminTransferNominated` | New admin nominated via `transfer_admin` |
+| `AdminTransferred` | Admin handover completed via `accept_admin` |
+
+These events can be indexed off-chain for compliance dashboards and analytics.
+
+---
+
+## Error codes (6000+)
+
+| Code | Name | Description |
+|------|------|-------------|
+| 6000 | Unauthorized | Caller is not the admin (or pending admin, where applicable) |
+| 6001 | SenderBlacklisted | Source wallet owner is blacklisted |
+| 6002 | RecipientBlacklisted | Destination wallet owner is blacklisted |
+| 6003 | MintMismatch | Mint does not match config or token accounts |
+| 6004 | InvalidTokenAccount | Token account data invalid or unparseable |
+| 6005 | InvalidBlacklistAccount | Blacklist PDA derivation mismatch |
+| 6006 | InvalidExtraAccountMetaList | ExtraAccountMetaList PDA mismatch |
+| 6007 | NotTransferring | Hook invoked outside a token transfer (direct call) |
+| 6008 | NoPendingAdmin | No pending admin nomination to accept |
+| 6009 | CannotCloseBlockedEntry | Cannot close a blacklist entry that is still blocked |
 
 ---
 
@@ -95,18 +184,17 @@ The integration tests in `tests/blacklist-hook.ts` cover:
 
 - Creating a Token-2022 mint with the TransferHook extension pointing at this program
 - Initializing the Config and ExtraAccountMetaList PDAs
-- Initializing BlacklistEntry PDAs for test wallets
-- Verifying a transfer succeeds when neither party is blacklisted
+- Verifying a transfer succeeds when neither party is blacklisted (no pre-initialized PDAs needed)
 - Blacklisting a **recipient** and verifying the transfer is blocked
 - Blacklisting a **sender** and verifying the transfer is blocked
 - Removing a sender from the blacklist and verifying transfers resume
+- Admin transfer flow (`transfer_admin` + `accept_admin`)
+- `close_blacklist_entry` for unblocked entries
 
 ---
 
 ## Production hardening ideas
 
-- Add `set_admin` / `accept_admin` flow for admin rotation
-- Emit Anchor events on blacklist changes for off-chain indexing
 - Add an allowlist mode beside the blocklist mode
 - Optionally combine with default-frozen / freeze-authority controls for issuer-operated compliance
 - Add per-jurisdiction policy logic or reason codes to BlacklistEntry

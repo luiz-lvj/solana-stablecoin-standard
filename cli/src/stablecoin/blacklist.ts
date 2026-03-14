@@ -14,10 +14,6 @@ const CONFIG_SEED = Buffer.from("config");
 const BLACKLIST_SEED = Buffer.from("blacklist");
 const EXTRA_ACCOUNT_METAS_SEED = Buffer.from("extra-account-metas");
 
-/**
- * Computes the 8-byte Anchor instruction discriminator.
- * Anchor uses sha256("global:<instruction_name>")[0..8].
- */
 function anchorDiscriminator(instructionName: string): Buffer {
   return createHash("sha256")
     .update(`global:${instructionName}`)
@@ -57,9 +53,9 @@ function findConfigPda(mint: PublicKey, programId: PublicKey): [PublicKey, numbe
   );
 }
 
-function findBlacklistPda(wallet: PublicKey, programId: PublicKey): [PublicKey, number] {
+function findBlacklistPda(mint: PublicKey, wallet: PublicKey, programId: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [BLACKLIST_SEED, wallet.toBuffer()],
+    [BLACKLIST_SEED, mint.toBuffer(), wallet.toBuffer()],
     programId,
   );
 }
@@ -71,10 +67,6 @@ function findExtraAccountMetasPda(mint: PublicKey, programId: PublicKey): [Publi
   );
 }
 
-/**
- * Initializes the blacklist hook Config PDA and ExtraAccountMetaList PDA.
- * Called during SSS-2 deployment after the mint is created.
- */
 export async function initializeBlacklistHook(
   connection: Connection,
   blacklistProgramId: PublicKey,
@@ -84,7 +76,6 @@ export async function initializeBlacklistHook(
   const [configPda] = findConfigPda(mint, blacklistProgramId);
   const [extraMetasPda] = findExtraAccountMetasPda(mint, blacklistProgramId);
 
-  const initConfigDisc = anchorDiscriminator("initialize_config");
   const initConfigIx = new TransactionInstruction({
     keys: [
       { pubkey: admin.publicKey, isSigner: true, isWritable: true },
@@ -93,14 +84,13 @@ export async function initializeBlacklistHook(
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     programId: blacklistProgramId,
-    data: initConfigDisc,
+    data: anchorDiscriminator("initialize_config"),
   });
 
   const tx1 = new Transaction().add(initConfigIx);
   await sendAndConfirmTransaction(connection, tx1, [admin], { commitment: "confirmed" });
   console.log("Initialized blacklist config PDA:", configPda.toBase58());
 
-  const initMetasDisc = anchorDiscriminator("initialize_extra_account_meta_list");
   const initMetasIx = new TransactionInstruction({
     keys: [
       { pubkey: admin.publicKey, isSigner: true, isWritable: true },
@@ -110,7 +100,7 @@ export async function initializeBlacklistHook(
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     programId: blacklistProgramId,
-    data: initMetasDisc,
+    data: anchorDiscriminator("initialize_extra_account_meta_list"),
   });
 
   const tx2 = new Transaction().add(initMetasIx);
@@ -126,10 +116,12 @@ export async function runBlacklistAdd(cfg: SssConfig, walletStr: string): Promis
   const wallet = new PublicKey(walletStr);
 
   const [configPda] = findConfigPda(mint, blacklistProgramId);
-  const [blacklistPda] = findBlacklistPda(wallet, blacklistProgramId);
+  const [blacklistPda] = findBlacklistPda(mint, wallet, blacklistProgramId);
 
-  const discriminator = anchorDiscriminator("add_to_blacklist");
-  const data = Buffer.concat([discriminator, wallet.toBuffer()]);
+  const data = Buffer.concat([
+    anchorDiscriminator("add_to_blacklist"),
+    wallet.toBuffer(),
+  ]);
 
   const ix = new TransactionInstruction({
     keys: [
@@ -158,10 +150,12 @@ export async function runBlacklistRemove(cfg: SssConfig, walletStr: string): Pro
   const wallet = new PublicKey(walletStr);
 
   const [configPda] = findConfigPda(mint, blacklistProgramId);
-  const [blacklistPda] = findBlacklistPda(wallet, blacklistProgramId);
+  const [blacklistPda] = findBlacklistPda(mint, wallet, blacklistProgramId);
 
-  const discriminator = anchorDiscriminator("remove_from_blacklist");
-  const data = Buffer.concat([discriminator, wallet.toBuffer()]);
+  const data = Buffer.concat([
+    anchorDiscriminator("remove_from_blacklist"),
+    wallet.toBuffer(),
+  ]);
 
   const ix = new TransactionInstruction({
     keys: [
@@ -185,9 +179,10 @@ export async function runBlacklistRemove(cfg: SssConfig, walletStr: string): Pro
 export async function runBlacklistCheck(cfg: SssConfig, walletStr: string): Promise<void> {
   const connection = getConnection(cfg);
   const blacklistProgramId = getBlacklistProgramId(cfg);
+  const mint = requireMint(cfg);
   const wallet = new PublicKey(walletStr);
 
-  const [blacklistPda] = findBlacklistPda(wallet, blacklistProgramId);
+  const [blacklistPda] = findBlacklistPda(mint, wallet, blacklistProgramId);
 
   const accountInfo = await connection.getAccountInfo(blacklistPda);
 
@@ -199,13 +194,13 @@ export async function runBlacklistCheck(cfg: SssConfig, walletStr: string): Prom
     return;
   }
 
-  // Anchor account layout: 8-byte discriminator + 32-byte wallet + 1-byte blocked + 1-byte bump
+  // Layout: 8-byte discriminator | 32-byte wallet | 32-byte mint | 1-byte blocked | 1-byte bump
   const data = accountInfo.data;
-  if (data.length < 8 + 32 + 1) {
+  if (data.length < 8 + 32 + 32 + 1) {
     console.log("Blacklisted: unknown (unexpected account data)");
     return;
   }
 
-  const blocked = data[8 + 32] !== 0;
+  const blocked = data[8 + 32 + 32] !== 0;
   console.log("Blacklisted:", blocked);
 }

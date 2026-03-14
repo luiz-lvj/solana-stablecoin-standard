@@ -30,11 +30,11 @@ The foundation. Solana's Token-2022 program provides the mint account, token acc
 
 An Anchor program deployed at a known address. Token-2022 calls it during every transfer of an SSS-2 token. The program maintains:
 
-- **Config PDA** `["config", mint]` — stores the admin authority and mint reference.
-- **BlacklistEntry PDA** `["blacklist", wallet]` — one per wallet, stores a `blocked: bool` flag.
+- **Config PDA** `["config", mint]` — stores the admin authority, pending admin (for two-step transfer), and mint reference.
+- **BlacklistEntry PDA** `["blacklist", mint, wallet]` — per-mint, per-wallet blacklist flag. Missing PDAs are treated as "not blacklisted".
 - **ExtraAccountMetaList PDA** `["extra-account-metas", mint]` — TLV-encoded list telling Token-2022 which extra accounts to resolve and pass to the hook.
 
-On every transfer, the hook receives the source account, destination account, and the resolved extra accounts (config, source blacklist PDA, destination blacklist PDA). It unpacks the token accounts, looks up the corresponding `BlacklistEntry`, and rejects the transaction if either side is blocked.
+On every transfer, the hook: (1) verifies the `TransferHookAccount.transferring` flag to prevent direct invocation, (2) unpacks token accounts to get owner wallets, (3) derives per-mint blacklist PDAs, and (4) checks if either side is blocked. Missing PDAs (wallet never blacklisted) pass through cleanly.
 
 ### Layer 3 — CLI and SDK
 

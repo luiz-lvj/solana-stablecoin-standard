@@ -1,4 +1,4 @@
-import type { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import type { Keypair, PublicKey } from "@solana/web3.js";
 
 /** SSS compliance presets. */
 export enum Presets {
@@ -6,9 +6,7 @@ export enum Presets {
   SSS_2 = "sss-2",
 }
 
-// ---------------------------------------------------------------------------
-// Extension options (deploy-time)
-// ---------------------------------------------------------------------------
+// ─── Extension options (deploy-time) ─────────────────────────────────────────
 
 export interface TransferHookConfig {
   programId: PublicKey;
@@ -27,9 +25,7 @@ export interface ExtensionsConfig {
   transferHook?: boolean | TransferHookConfig;
 }
 
-// ---------------------------------------------------------------------------
-// Factory options
-// ---------------------------------------------------------------------------
+// ─── Factory options ─────────────────────────────────────────────────────────
 
 export interface CreateOptions {
   /** SSS preset. Determines required extensions. Defaults to SSS_1. */
@@ -64,9 +60,7 @@ export interface LoadOptions {
   transferHookProgramId?: PublicKey;
 }
 
-// ---------------------------------------------------------------------------
-// Operation options
-// ---------------------------------------------------------------------------
+// ─── Operation options ───────────────────────────────────────────────────────
 
 export interface MintOptions {
   /** Recipient wallet. An ATA is created if it doesn't exist. */
@@ -84,6 +78,32 @@ export interface BurnOptions {
   owner: Keypair;
   /** Specific token account to burn from. Defaults to owner's ATA. */
   tokenAccount?: PublicKey;
+}
+
+export interface TransferOptions {
+  /** Source wallet (must be signer). */
+  owner: Keypair;
+  /** Destination wallet public key. */
+  destination: PublicKey;
+  /** Amount in raw units. */
+  amount: bigint;
+  /** Decimals of the mint. */
+  decimals: number;
+  /** Source token account. Defaults to owner's ATA. */
+  sourceTokenAccount?: PublicKey;
+  /** Destination token account. Defaults to destination's ATA. */
+  destinationTokenAccount?: PublicKey;
+}
+
+export interface SeizeOptions {
+  /** Frozen token account to seize from. */
+  targetTokenAccount: PublicKey;
+  /** Treasury wallet that receives the seized tokens. */
+  treasury: PublicKey;
+  /** Amount to seize in raw units. */
+  amount: bigint;
+  /** Freeze authority keypair (must also be permanent delegate). */
+  authority: Keypair;
 }
 
 export interface FreezeOptions {
@@ -120,19 +140,21 @@ export interface SetAuthorityOptions {
   newAuthority: PublicKey | null;
 }
 
-// ---------------------------------------------------------------------------
-// Read-only return types
-// ---------------------------------------------------------------------------
+// ─── Read-only return types ──────────────────────────────────────────────────
 
 export interface SupplyInfo {
   raw: bigint;
+  /** Convenience float — may lose precision for amounts > 2^53. */
   uiAmount: number;
+  /** Precise string representation (e.g. "1234567.890000"). */
+  uiAmountString: string;
   decimals: number;
 }
 
 export interface BalanceInfo {
   raw: bigint;
   uiAmount: number;
+  uiAmountString: string;
   /** Associated token account for this wallet + mint. */
   ata: PublicKey;
   /** Whether the ATA exists on-chain. */

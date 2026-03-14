@@ -62,8 +62,9 @@ export default function Compliance() {
     if (!config.hookProgramId) return;
     clear(); setBusy(true);
     try {
+      const mint = new PublicKey(config.mintAddress);
       const hookPid = new PublicKey(config.hookProgramId);
-      const res = await fetchBlacklistStatus(connection, new PublicKey(checkWallet), hookPid);
+      const res = await fetchBlacklistStatus(connection, mint, new PublicKey(checkWallet), hookPid);
       setCheckResult({ blocked: res.blocked, pda: res.pda });
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }

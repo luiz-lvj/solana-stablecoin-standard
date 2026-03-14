@@ -1,5 +1,5 @@
 export { SolanaStablecoin } from "./stablecoin";
-export { Compliance } from "./compliance";
+export { Compliance, getConfigAddress, getBlacklistAddress, getExtraAccountMetasAddress } from "./compliance";
 export { Presets } from "./types";
 
 export type {
@@ -7,6 +7,8 @@ export type {
   LoadOptions,
   MintOptions,
   BurnOptions,
+  TransferOptions,
+  SeizeOptions,
   FreezeOptions,
   ThawOptions,
   SetAuthorityOptions,

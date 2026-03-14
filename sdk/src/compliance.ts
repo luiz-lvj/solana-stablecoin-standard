@@ -20,23 +20,44 @@ function anchorDiscriminator(instructionName: string): Buffer {
     .subarray(0, 8);
 }
 
-function findConfigPda(mint: PublicKey, programId: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([CONFIG_SEED, mint.toBuffer()], programId);
+// ─── Exported PDA helpers (standalone, like vault standard) ──────────────────
+
+export function getConfigAddress(
+  mint: PublicKey,
+  programId: PublicKey,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [CONFIG_SEED, mint.toBuffer()],
+    programId,
+  );
 }
 
-function findBlacklistPda(wallet: PublicKey, programId: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([BLACKLIST_SEED, wallet.toBuffer()], programId);
+export function getBlacklistAddress(
+  mint: PublicKey,
+  wallet: PublicKey,
+  programId: PublicKey,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [BLACKLIST_SEED, mint.toBuffer(), wallet.toBuffer()],
+    programId,
+  );
 }
 
-function findExtraAccountMetasPda(mint: PublicKey, programId: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([EXTRA_ACCOUNT_METAS_SEED, mint.toBuffer()], programId);
+export function getExtraAccountMetasAddress(
+  mint: PublicKey,
+  programId: PublicKey,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [EXTRA_ACCOUNT_METAS_SEED, mint.toBuffer()],
+    programId,
+  );
 }
 
 /**
  * Compliance operations for SSS-2 stablecoins (blacklist transfer hook).
  *
- * This class interacts with the blacklist_hook Anchor program to manage
- * on-chain blacklist entries that block transfers to/from specified wallets.
+ * Interacts with the blacklist_hook Anchor program to manage on-chain
+ * blacklist entries that block transfers to/from specified wallets.
  */
 export class Compliance {
   constructor(
@@ -45,24 +66,27 @@ export class Compliance {
     private readonly hookProgramId: PublicKey,
   ) {}
 
-  // ---------------------------------------------------------------------------
-  // Initialization (called during deploy, exposed for advanced use)
-  // ---------------------------------------------------------------------------
+  // ─── Initialization (called during deploy) ─────────────────────────────────
 
-  /**
-   * Initializes the Config PDA and ExtraAccountMetaList PDA on the
-   * blacklist_hook program. Must be called once after the mint is created.
-   */
-  async initializeHook(admin: Keypair): Promise<{ configPda: PublicKey; extraMetasPda: PublicKey }> {
-    const [configPda] = findConfigPda(this.mint, this.hookProgramId);
-    const [extraMetasPda] = findExtraAccountMetasPda(this.mint, this.hookProgramId);
+  async initializeHook(
+    admin: Keypair,
+  ): Promise<{ configPda: PublicKey; extraMetasPda: PublicKey }> {
+    const [configPda] = getConfigAddress(this.mint, this.hookProgramId);
+    const [extraMetasPda] = getExtraAccountMetasAddress(
+      this.mint,
+      this.hookProgramId,
+    );
 
     const initConfigIx = new TransactionInstruction({
       keys: [
         { pubkey: admin.publicKey, isSigner: true, isWritable: true },
         { pubkey: this.mint, isSigner: false, isWritable: false },
         { pubkey: configPda, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        {
+          pubkey: SystemProgram.programId,
+          isSigner: false,
+          isWritable: false,
+        },
       ],
       programId: this.hookProgramId,
       data: anchorDiscriminator("initialize_config"),
@@ -80,7 +104,11 @@ export class Compliance {
         { pubkey: this.mint, isSigner: false, isWritable: false },
         { pubkey: configPda, isSigner: false, isWritable: false },
         { pubkey: extraMetasPda, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        {
+          pubkey: SystemProgram.programId,
+          isSigner: false,
+          isWritable: false,
+        },
       ],
       programId: this.hookProgramId,
       data: anchorDiscriminator("initialize_extra_account_meta_list"),
@@ -95,19 +123,15 @@ export class Compliance {
     return { configPda, extraMetasPda };
   }
 
-  // ---------------------------------------------------------------------------
-  // Blacklist management
-  // ---------------------------------------------------------------------------
+  // ─── Blacklist management ──────────────────────────────────────────────────
 
-  /**
-   * Add a wallet to the blacklist. Creates the BlacklistEntry PDA if it
-   * doesn't exist, or sets `blocked = true` if it does.
-   *
-   * @returns Transaction signature.
-   */
   async blacklistAdd(wallet: PublicKey, admin: Keypair): Promise<string> {
-    const [configPda] = findConfigPda(this.mint, this.hookProgramId);
-    const [blacklistPda] = findBlacklistPda(wallet, this.hookProgramId);
+    const [configPda] = getConfigAddress(this.mint, this.hookProgramId);
+    const [blacklistPda] = getBlacklistAddress(
+      this.mint,
+      wallet,
+      this.hookProgramId,
+    );
 
     const data = Buffer.concat([
       anchorDiscriminator("add_to_blacklist"),
@@ -120,7 +144,11 @@ export class Compliance {
         { pubkey: this.mint, isSigner: false, isWritable: false },
         { pubkey: configPda, isSigner: false, isWritable: false },
         { pubkey: blacklistPda, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        {
+          pubkey: SystemProgram.programId,
+          isSigner: false,
+          isWritable: false,
+        },
       ],
       programId: this.hookProgramId,
       data,
@@ -134,15 +162,13 @@ export class Compliance {
     );
   }
 
-  /**
-   * Remove a wallet from the blacklist. Sets `blocked = false` on the
-   * BlacklistEntry PDA (the PDA stays on-chain so the hook can still resolve it).
-   *
-   * @returns Transaction signature.
-   */
   async blacklistRemove(wallet: PublicKey, admin: Keypair): Promise<string> {
-    const [configPda] = findConfigPda(this.mint, this.hookProgramId);
-    const [blacklistPda] = findBlacklistPda(wallet, this.hookProgramId);
+    const [configPda] = getConfigAddress(this.mint, this.hookProgramId);
+    const [blacklistPda] = getBlacklistAddress(
+      this.mint,
+      wallet,
+      this.hookProgramId,
+    );
 
     const data = Buffer.concat([
       anchorDiscriminator("remove_from_blacklist"),
@@ -155,7 +181,11 @@ export class Compliance {
         { pubkey: this.mint, isSigner: false, isWritable: false },
         { pubkey: configPda, isSigner: false, isWritable: false },
         { pubkey: blacklistPda, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        {
+          pubkey: SystemProgram.programId,
+          isSigner: false,
+          isWritable: false,
+        },
       ],
       programId: this.hookProgramId,
       data,
@@ -170,35 +200,126 @@ export class Compliance {
   }
 
   /**
-   * Check whether a wallet is currently blacklisted. Read-only; no
-   * transaction is sent.
+   * Close an unblocked blacklist entry PDA to reclaim rent.
+   * Fails if the entry is still blocked.
    */
+  async closeBlacklistEntry(
+    wallet: PublicKey,
+    admin: Keypair,
+  ): Promise<string> {
+    const [configPda] = getConfigAddress(this.mint, this.hookProgramId);
+    const [blacklistPda] = getBlacklistAddress(
+      this.mint,
+      wallet,
+      this.hookProgramId,
+    );
+
+    const data = Buffer.concat([
+      anchorDiscriminator("close_blacklist_entry"),
+      wallet.toBuffer(),
+    ]);
+
+    const ix = new TransactionInstruction({
+      keys: [
+        { pubkey: admin.publicKey, isSigner: true, isWritable: true },
+        { pubkey: this.mint, isSigner: false, isWritable: false },
+        { pubkey: configPda, isSigner: false, isWritable: false },
+        { pubkey: blacklistPda, isSigner: false, isWritable: true },
+      ],
+      programId: this.hookProgramId,
+      data,
+    });
+
+    return sendAndConfirmTransaction(
+      this.connection,
+      new Transaction().add(ix),
+      [admin],
+      { commitment: "confirmed" },
+    );
+  }
+
+  // ─── Two-step admin transfer ───────────────────────────────────────────────
+
+  async transferAdmin(
+    newAdmin: PublicKey,
+    currentAdmin: Keypair,
+  ): Promise<string> {
+    const [configPda] = getConfigAddress(this.mint, this.hookProgramId);
+
+    const data = Buffer.concat([
+      anchorDiscriminator("transfer_admin"),
+      newAdmin.toBuffer(),
+    ]);
+
+    const ix = new TransactionInstruction({
+      keys: [
+        {
+          pubkey: currentAdmin.publicKey,
+          isSigner: true,
+          isWritable: true,
+        },
+        { pubkey: this.mint, isSigner: false, isWritable: false },
+        { pubkey: configPda, isSigner: false, isWritable: true },
+      ],
+      programId: this.hookProgramId,
+      data,
+    });
+
+    return sendAndConfirmTransaction(
+      this.connection,
+      new Transaction().add(ix),
+      [currentAdmin],
+      { commitment: "confirmed" },
+    );
+  }
+
+  async acceptAdmin(newAdmin: Keypair): Promise<string> {
+    const [configPda] = getConfigAddress(this.mint, this.hookProgramId);
+
+    const ix = new TransactionInstruction({
+      keys: [
+        { pubkey: newAdmin.publicKey, isSigner: true, isWritable: false },
+        { pubkey: this.mint, isSigner: false, isWritable: false },
+        { pubkey: configPda, isSigner: false, isWritable: true },
+      ],
+      programId: this.hookProgramId,
+      data: anchorDiscriminator("accept_admin"),
+    });
+
+    return sendAndConfirmTransaction(
+      this.connection,
+      new Transaction().add(ix),
+      [newAdmin],
+      { commitment: "confirmed" },
+    );
+  }
+
+  // ─── Read-only queries ─────────────────────────────────────────────────────
+
   async isBlacklisted(wallet: PublicKey): Promise<BlacklistStatus> {
-    const [pda] = findBlacklistPda(wallet, this.hookProgramId);
+    const [pda] = getBlacklistAddress(this.mint, wallet, this.hookProgramId);
     const accountInfo = await this.connection.getAccountInfo(pda);
 
-    if (!accountInfo || accountInfo.data.length < 8 + 32 + 1) {
+    if (!accountInfo || accountInfo.data.length < 8 + 32 + 32 + 1) {
       return { wallet, pda, blocked: false };
     }
 
-    // Anchor layout: 8-byte discriminator | 32-byte wallet | 1-byte blocked | 1-byte bump
-    const blocked = accountInfo.data[8 + 32] !== 0;
+    // Layout: 8-byte discriminator | 32-byte wallet | 32-byte mint | 1-byte blocked | 1-byte bump
+    const blocked = accountInfo.data[8 + 32 + 32] !== 0;
     return { wallet, pda, blocked };
   }
 
-  // ---------------------------------------------------------------------------
-  // PDA helpers (useful for building custom transactions)
-  // ---------------------------------------------------------------------------
+  // ─── PDA helpers ───────────────────────────────────────────────────────────
 
   getConfigPda(): PublicKey {
-    return findConfigPda(this.mint, this.hookProgramId)[0];
+    return getConfigAddress(this.mint, this.hookProgramId)[0];
   }
 
   getBlacklistPda(wallet: PublicKey): PublicKey {
-    return findBlacklistPda(wallet, this.hookProgramId)[0];
+    return getBlacklistAddress(this.mint, wallet, this.hookProgramId)[0];
   }
 
   getExtraAccountMetasPda(): PublicKey {
-    return findExtraAccountMetasPda(this.mint, this.hookProgramId)[0];
+    return getExtraAccountMetasAddress(this.mint, this.hookProgramId)[0];
   }
 }

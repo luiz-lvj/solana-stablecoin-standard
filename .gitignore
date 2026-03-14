@@ -3,3 +3,9 @@ dist/
 .env
 *.log
 .DS_Store
+
+# Anchor / Solana
+.anchor/test-ledger/
+target/
+*.so
+test-ledger/

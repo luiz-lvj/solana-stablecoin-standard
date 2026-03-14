@@ -1,12 +1,11 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
-use spl_tlv_account_resolution::{
-    account::ExtraAccountMeta,
-    state::ExtraAccountMetaList,
-};
+use spl_tlv_account_resolution::{account::ExtraAccountMeta, state::ExtraAccountMetaList};
 use spl_transfer_hook_interface::instruction::{ExecuteInstruction, TransferHookInstruction};
 use spl_token_2022::{
-    extension::StateWithExtensions,
+    extension::{
+        transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
+    },
     state::Account as TokenAccountState,
 };
 
@@ -23,8 +22,16 @@ pub mod blacklist_hook {
     pub fn initialize_config(ctx: Context<InitializeConfig>) -> Result<()> {
         let config = &mut ctx.accounts.config;
         config.admin = ctx.accounts.admin.key();
+        config.pending_admin = None;
         config.mint = ctx.accounts.mint.key();
         config.bump = ctx.bumps.config;
+
+        emit!(ConfigInitialized {
+            config: ctx.accounts.config.key(),
+            admin: ctx.accounts.admin.key(),
+            mint: ctx.accounts.mint.key(),
+        });
+
         Ok(())
     }
 
@@ -38,17 +45,18 @@ pub mod blacklist_hook {
                     spl_tlv_account_resolution::seeds::Seed::Literal {
                         bytes: CONFIG_SEED.to_vec(),
                     },
-                    spl_tlv_account_resolution::seeds::Seed::AccountKey { index: 1 }, // mint
+                    spl_tlv_account_resolution::seeds::Seed::AccountKey { index: 1 },
                 ],
                 false,
                 false,
             )?,
-            // source blacklist = ["blacklist", source_token.owner]
+            // source blacklist = ["blacklist", mint, source_token.owner]
             ExtraAccountMeta::new_with_seeds(
                 &[
                     spl_tlv_account_resolution::seeds::Seed::Literal {
                         bytes: BLACKLIST_SEED.to_vec(),
                     },
+                    spl_tlv_account_resolution::seeds::Seed::AccountKey { index: 1 },
                     spl_tlv_account_resolution::seeds::Seed::AccountData {
                         account_index: 0,
                         data_index: 32,
@@ -58,12 +66,13 @@ pub mod blacklist_hook {
                 false,
                 false,
             )?,
-            // destination blacklist = ["blacklist", destination_token.owner]
+            // destination blacklist = ["blacklist", mint, destination_token.owner]
             ExtraAccountMeta::new_with_seeds(
                 &[
                     spl_tlv_account_resolution::seeds::Seed::Literal {
                         bytes: BLACKLIST_SEED.to_vec(),
                     },
+                    spl_tlv_account_resolution::seeds::Seed::AccountKey { index: 1 },
                     spl_tlv_account_resolution::seeds::Seed::AccountData {
                         account_index: 2,
                         data_index: 32,
@@ -98,8 +107,17 @@ pub mod blacklist_hook {
 
         let entry = &mut ctx.accounts.blacklist_entry;
         entry.wallet = wallet;
+        entry.mint = ctx.accounts.mint.key();
         entry.blocked = true;
         entry.bump = ctx.bumps.blacklist_entry;
+
+        emit!(WalletBlacklisted {
+            mint: ctx.accounts.mint.key(),
+            wallet,
+            authority: ctx.accounts.admin.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
         Ok(())
     }
 
@@ -117,8 +135,84 @@ pub mod blacklist_hook {
 
         let entry = &mut ctx.accounts.blacklist_entry;
         entry.wallet = wallet;
+        entry.mint = ctx.accounts.mint.key();
         entry.blocked = false;
         entry.bump = ctx.bumps.blacklist_entry;
+
+        emit!(WalletUnblacklisted {
+            mint: ctx.accounts.mint.key(),
+            wallet,
+            authority: ctx.accounts.admin.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
+    pub fn close_blacklist_entry(
+        ctx: Context<CloseBlacklistEntry>,
+        _wallet: Pubkey,
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.admin.key(),
+            ctx.accounts.config.admin,
+            BlacklistError::Unauthorized
+        );
+        require!(
+            !ctx.accounts.blacklist_entry.blocked,
+            BlacklistError::CannotCloseBlockedEntry
+        );
+
+        emit!(BlacklistEntryClosed {
+            mint: ctx.accounts.mint.key(),
+            wallet: ctx.accounts.blacklist_entry.wallet,
+            authority: ctx.accounts.admin.key(),
+        });
+
+        Ok(())
+    }
+
+    pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.admin.key(),
+            ctx.accounts.config.admin,
+            BlacklistError::Unauthorized
+        );
+
+        let config = &mut ctx.accounts.config;
+        config.pending_admin = Some(new_admin);
+
+        emit!(AdminTransferNominated {
+            config: ctx.accounts.config.key(),
+            current_admin: ctx.accounts.admin.key(),
+            pending_admin: new_admin,
+        });
+
+        Ok(())
+    }
+
+    pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        let pending = config
+            .pending_admin
+            .ok_or(error!(BlacklistError::NoPendingAdmin))?;
+
+        require_keys_eq!(
+            ctx.accounts.new_admin.key(),
+            pending,
+            BlacklistError::Unauthorized
+        );
+
+        let previous = config.admin;
+        config.admin = ctx.accounts.new_admin.key();
+        config.pending_admin = None;
+
+        emit!(AdminTransferred {
+            config: ctx.accounts.config.key(),
+            previous_admin: previous,
+            new_admin: ctx.accounts.new_admin.key(),
+        });
+
         Ok(())
     }
 
@@ -148,6 +242,15 @@ pub mod blacklist_hook {
         let destination_state = StateWithExtensions::<TokenAccountState>::unpack(&destination_data)
             .map_err(|_| error!(BlacklistError::InvalidTokenAccount))?;
 
+        // Prevent direct invocation: verify token account is mid-transfer
+        if let Ok(hook_ext) = source_state.get_extension::<TransferHookAccount>() {
+            if !bool::from(hook_ext.transferring) {
+                return err!(BlacklistError::NotTransferring);
+            }
+        } else {
+            return err!(BlacklistError::NotTransferring);
+        }
+
         require_keys_eq!(
             source_state.base.mint,
             ctx.accounts.mint.key(),
@@ -162,11 +265,21 @@ pub mod blacklist_hook {
         let source_owner = source_state.base.owner;
         let destination_owner = destination_state.base.owner;
 
-        let (expected_source_blacklist, _) =
-            Pubkey::find_program_address(&[BLACKLIST_SEED, source_owner.as_ref()], ctx.program_id);
-
+        // Verify PDA derivation (per-mint scoping)
+        let (expected_source_blacklist, _) = Pubkey::find_program_address(
+            &[
+                BLACKLIST_SEED,
+                ctx.accounts.mint.key().as_ref(),
+                source_owner.as_ref(),
+            ],
+            ctx.program_id,
+        );
         let (expected_destination_blacklist, _) = Pubkey::find_program_address(
-            &[BLACKLIST_SEED, destination_owner.as_ref()],
+            &[
+                BLACKLIST_SEED,
+                ctx.accounts.mint.key().as_ref(),
+                destination_owner.as_ref(),
+            ],
             ctx.program_id,
         );
 
@@ -182,11 +295,11 @@ pub mod blacklist_hook {
         );
 
         if is_blacklisted(&ctx.accounts.source_blacklist)? {
-            return err!(BlacklistError::Blacklisted);
+            return err!(BlacklistError::SenderBlacklisted);
         }
 
         if is_blacklisted(&ctx.accounts.destination_blacklist)? {
-            return err!(BlacklistError::Blacklisted);
+            return err!(BlacklistError::RecipientBlacklisted);
         }
 
         Ok(())
@@ -210,12 +323,20 @@ pub mod blacklist_hook {
     }
 }
 
+/// Missing or empty accounts are treated as "not blacklisted", so wallets that
+/// were never added to (or removed+closed from) the blacklist can still transfer.
 fn is_blacklisted(account_info: &AccountInfo) -> Result<bool> {
+    if account_info.data_is_empty() || account_info.owner != &crate::ID {
+        return Ok(false);
+    }
     let mut data: &[u8] = &account_info.try_borrow_data()?;
-    let entry = BlacklistEntry::try_deserialize(&mut data)
-        .map_err(|_| error!(BlacklistError::InvalidBlacklistAccount))?;
-    Ok(entry.blocked)
+    match BlacklistEntry::try_deserialize(&mut data) {
+        Ok(entry) => Ok(entry.blocked),
+        Err(_) => Ok(false),
+    }
 }
+
+// ─── Account contexts ────────────────────────────────────────────────────────
 
 #[derive(Accounts)]
 pub struct InitializeConfig<'info> {
@@ -280,12 +401,64 @@ pub struct SetBlacklist<'info> {
         init_if_needed,
         payer = admin,
         space = 8 + BlacklistEntry::INIT_SPACE,
-        seeds = [BLACKLIST_SEED, wallet.as_ref()],
+        seeds = [BLACKLIST_SEED, mint.key().as_ref(), wallet.as_ref()],
         bump
     )]
     pub blacklist_entry: Account<'info, BlacklistEntry>,
 
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(wallet: Pubkey)]
+pub struct CloseBlacklistEntry<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        seeds = [CONFIG_SEED, mint.key().as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, Config>,
+
+    #[account(
+        mut,
+        close = admin,
+        seeds = [BLACKLIST_SEED, mint.key().as_ref(), wallet.as_ref()],
+        bump = blacklist_entry.bump,
+    )]
+    pub blacklist_entry: Account<'info, BlacklistEntry>,
+}
+
+#[derive(Accounts)]
+pub struct TransferAdmin<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED, mint.key().as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, Config>,
+}
+
+#[derive(Accounts)]
+pub struct AcceptAdmin<'info> {
+    pub new_admin: Signer<'info>,
+
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED, mint.key().as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
@@ -314,41 +487,103 @@ pub struct TransferHook<'info> {
     )]
     pub config: Account<'info, Config>,
 
-    /// CHECK: validated manually
+    /// CHECK: validated manually; missing account = not blacklisted
     pub source_blacklist: UncheckedAccount<'info>,
 
-    /// CHECK: validated manually
+    /// CHECK: validated manually; missing account = not blacklisted
     pub destination_blacklist: UncheckedAccount<'info>,
 }
+
+// ─── Account state ───────────────────────────────────────────────────────────
 
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
     pub admin: Pubkey,
+    pub pending_admin: Option<Pubkey>,
     pub mint: Pubkey,
     pub bump: u8,
+    pub _reserved: [u8; 64],
 }
 
 #[account]
 #[derive(InitSpace)]
 pub struct BlacklistEntry {
     pub wallet: Pubkey,
+    pub mint: Pubkey,
     pub blocked: bool,
     pub bump: u8,
+    pub _reserved: [u8; 32],
 }
+
+// ─── Events ──────────────────────────────────────────────────────────────────
+
+#[event]
+pub struct ConfigInitialized {
+    pub config: Pubkey,
+    pub admin: Pubkey,
+    pub mint: Pubkey,
+}
+
+#[event]
+pub struct WalletBlacklisted {
+    pub mint: Pubkey,
+    pub wallet: Pubkey,
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct WalletUnblacklisted {
+    pub mint: Pubkey,
+    pub wallet: Pubkey,
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct BlacklistEntryClosed {
+    pub mint: Pubkey,
+    pub wallet: Pubkey,
+    pub authority: Pubkey,
+}
+
+#[event]
+pub struct AdminTransferNominated {
+    pub config: Pubkey,
+    pub current_admin: Pubkey,
+    pub pending_admin: Pubkey,
+}
+
+#[event]
+pub struct AdminTransferred {
+    pub config: Pubkey,
+    pub previous_admin: Pubkey,
+    pub new_admin: Pubkey,
+}
+
+// ─── Error codes (6000+, aligned with vault standard) ────────────────────────
 
 #[error_code]
 pub enum BlacklistError {
-    #[msg("Unauthorized")]
+    #[msg("Unauthorized — caller is not the admin")]
     Unauthorized,
-    #[msg("Wallet is blacklisted")]
-    Blacklisted,
+    #[msg("Sender wallet is blacklisted")]
+    SenderBlacklisted,
+    #[msg("Recipient wallet is blacklisted")]
+    RecipientBlacklisted,
     #[msg("Mint mismatch")]
     MintMismatch,
-    #[msg("Invalid token account")]
+    #[msg("Invalid token account data")]
     InvalidTokenAccount,
     #[msg("Invalid blacklist account")]
     InvalidBlacklistAccount,
-    #[msg("Invalid extra account meta list account")]
+    #[msg("Invalid extra account meta list")]
     InvalidExtraAccountMetaList,
+    #[msg("Transfer hook invoked outside of a token transfer")]
+    NotTransferring,
+    #[msg("No pending admin nomination to accept")]
+    NoPendingAdmin,
+    #[msg("Cannot close a blacklist entry that is still blocked")]
+    CannotCloseBlockedEntry,
 }

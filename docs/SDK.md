@@ -154,21 +154,49 @@ await stable.setAuthority({
 
 Supported `AuthorityKind` values: `"mint"`, `"freeze"`, `"metadata"`, `"metadata-pointer"`, `"pause"`, `"permanent-delegate"`, `"close-mint"`, `"interest-rate"`.
 
+### Transfer (SSS-2)
+
+For SSS-2 tokens, transfers must go through the hook. The SDK resolves the extra accounts automatically:
+
+```typescript
+await stable.transfer({
+  owner: senderKeypair,
+  destination: recipientPubkey,
+  amount: 1_000_000n,
+  decimals: 6,
+});
+```
+
+### Build Unsigned Transactions (Wallet Adapter / Phantom)
+
+For browser environments where the wallet signs:
+
+```typescript
+const tx = await stable.buildMintTransaction(payerPubkey, recipientPubkey, 1_000_000n);
+const tx2 = await stable.buildTransferTransaction(ownerPubkey, destPubkey, 500_000n, 6);
+const tx3 = stable.buildBurnTransaction(ownerPubkey, 250_000n);
+// Sign with wallet adapter, then send
+```
+
 ## Read Operations
 
 ### Supply
 
 ```typescript
 const supply = await stable.getSupply();
-// { raw: 1000000n, uiAmount: 1.0, decimals: 6 }
+// { raw: 1000000n, uiAmount: 1.0, uiAmountString: "1.000000", decimals: 6 }
 ```
+
+`uiAmountString` provides full precision for amounts > 2^53.
 
 ### Balance
 
 ```typescript
 const balance = await stable.getBalance(walletPubkey);
-// { raw: 500000n, uiAmount: 0.5, ata: PublicKey, exists: true }
+// { raw: 500000n, uiAmount: 0.5, uiAmountString: "0.500000", ata: PublicKey, exists: true }
 ```
+
+**Note**: `getBalance()` only catches "account not found" errors. Network errors are properly propagated.
 
 ### Status
 
@@ -207,17 +235,38 @@ await stable.compliance.blacklistAdd(walletPubkey, adminKeypair);
 // Remove from blacklist
 await stable.compliance.blacklistRemove(walletPubkey, adminKeypair);
 
+// Close entry (reclaim rent for unblocked entries)
+await stable.compliance.closeBlacklistEntry(walletPubkey, adminKeypair);
+
 // Check status (read-only, no signing needed)
 const status = await stable.compliance.isBlacklisted(walletPubkey);
 // { wallet: PublicKey, pda: PublicKey, blocked: boolean }
 ```
 
-### PDA Helpers
+### Two-Step Admin Transfer
 
 ```typescript
-const configPda = stable.compliance.getConfigPda();
-const blacklistPda = stable.compliance.getBlacklistPda(walletPubkey);
-const extraMetasPda = stable.compliance.getExtraAccountMetasPda();
+// Current admin nominates a new admin
+await stable.compliance.transferAdmin(newAdminPubkey, currentAdminKeypair);
+
+// New admin accepts the role
+await stable.compliance.acceptAdmin(newAdminKeypair);
+```
+
+### PDA Helpers
+
+Standalone exports for building custom transactions:
+
+```typescript
+import { getConfigAddress, getBlacklistAddress, getExtraAccountMetasAddress } from "sss-token-sdk";
+
+const [configPda, bump] = getConfigAddress(mintPubkey, hookProgramId);
+const [blacklistPda] = getBlacklistAddress(mintPubkey, walletPubkey, hookProgramId);
+const [extraMetasPda] = getExtraAccountMetasAddress(mintPubkey, hookProgramId);
+
+// Instance helpers also available:
+const configPda2 = stable.compliance.getConfigPda();
+const blacklistPda2 = stable.compliance.getBlacklistPda(walletPubkey);
 ```
 
 ## Type Reference
@@ -243,11 +292,12 @@ interface LoadOptions {
 
 interface MintOptions      { recipient: PublicKey; amount: bigint; minter: Keypair; }
 interface BurnOptions      { amount: bigint; owner: Keypair; tokenAccount?: PublicKey; }
+interface TransferOptions  { owner: Keypair; destination: PublicKey; amount: bigint; decimals: number; sourceTokenAccount?: PublicKey; destinationTokenAccount?: PublicKey; }
 interface FreezeOptions    { tokenAccount: PublicKey; freezeAuthority: Keypair; }
 interface ThawOptions      { tokenAccount: PublicKey; freezeAuthority: Keypair; }
 interface SetAuthorityOptions { type: AuthorityKind; currentAuthority: Keypair; newAuthority: PublicKey | null; }
-interface SupplyInfo       { raw: bigint; uiAmount: number; decimals: number; }
-interface BalanceInfo      { raw: bigint; uiAmount: number; ata: PublicKey; exists: boolean; }
+interface SupplyInfo       { raw: bigint; uiAmount: number; uiAmountString: string; decimals: number; }
+interface BalanceInfo      { raw: bigint; uiAmount: number; uiAmountString: string; ata: PublicKey; exists: boolean; }
 interface TokenStatus      { mint: PublicKey; supply: SupplyInfo; mintAuthority: PublicKey | null; freezeAuthority: PublicKey | null; }
 interface AuditLogEntry    { signature: string; slot: number; err: unknown; blockTime: Date | null; }
 interface BlacklistStatus  { wallet: PublicKey; pda: PublicKey; blocked: boolean; }

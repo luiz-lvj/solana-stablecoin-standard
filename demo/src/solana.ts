@@ -33,6 +33,14 @@ async function anchorDiscriminator(name: string): Promise<Buffer> {
   return Buffer.from(new Uint8Array(hash).slice(0, 8));
 }
 
+function formatUiAmount(raw: bigint, decimals: number): string {
+  if (decimals === 0) return raw.toString();
+  const str = raw.toString().padStart(decimals + 1, "0");
+  const intPart = str.slice(0, str.length - decimals);
+  const fracPart = str.slice(str.length - decimals);
+  return `${intPart}.${fracPart}`;
+}
+
 // ─── Token operations (build Transaction, caller signs via Phantom) ──────────
 
 export async function buildMintTx(
@@ -133,6 +141,7 @@ export async function fetchSupply(connection: Connection, mint: PublicKey, progr
   return {
     raw: info.supply.toString(),
     uiAmount: Number(info.supply) / Math.pow(10, info.decimals),
+    uiAmountString: formatUiAmount(info.supply, info.decimals),
     decimals: info.decimals,
   };
 }
@@ -150,11 +159,12 @@ export async function fetchBalance(
     return {
       raw: account.amount.toString(),
       uiAmount: Number(account.amount) / Math.pow(10, info.decimals),
+      uiAmountString: formatUiAmount(account.amount, info.decimals),
       ata: ata.toBase58(),
       exists: true,
     };
   } catch {
-    return { raw: "0", uiAmount: 0, ata: ata.toBase58(), exists: false };
+    return { raw: "0", uiAmount: 0, uiAmountString: "0", ata: ata.toBase58(), exists: false };
   }
 }
 
@@ -165,6 +175,7 @@ export async function fetchStatus(connection: Connection, mint: PublicKey, progr
     supply: {
       raw: info.supply.toString(),
       uiAmount: Number(info.supply) / Math.pow(10, info.decimals),
+      uiAmountString: formatUiAmount(info.supply, info.decimals),
       decimals: info.decimals,
     },
     mintAuthority: info.mintAuthority?.toBase58() ?? null,
@@ -182,7 +193,7 @@ export async function fetchAuditLog(connection: Connection, mint: PublicKey, lim
   }));
 }
 
-// ─── Compliance / blacklist (Anchor program) ─────────────────────────────────
+// ─── Compliance / blacklist (per-mint PDA scoping) ───────────────────────────
 
 const CONFIG_SEED = Buffer.from("config");
 const BLACKLIST_SEED = Buffer.from("blacklist");
@@ -191,8 +202,11 @@ function findConfigPda(mint: PublicKey, programId: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([CONFIG_SEED, mint.toBuffer()], programId)[0];
 }
 
-function findBlacklistPda(wallet: PublicKey, programId: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([BLACKLIST_SEED, wallet.toBuffer()], programId)[0];
+function findBlacklistPda(mint: PublicKey, wallet: PublicKey, programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [BLACKLIST_SEED, mint.toBuffer(), wallet.toBuffer()],
+    programId,
+  )[0];
 }
 
 export async function buildBlacklistAddTx(
@@ -202,7 +216,7 @@ export async function buildBlacklistAddTx(
   hookProgramId: PublicKey,
 ): Promise<Transaction> {
   const configPda = findConfigPda(mint, hookProgramId);
-  const blacklistPda = findBlacklistPda(wallet, hookProgramId);
+  const blacklistPda = findBlacklistPda(mint, wallet, hookProgramId);
   const disc = await anchorDiscriminator("add_to_blacklist");
   const data = Buffer.concat([disc, wallet.toBuffer()]);
 
@@ -228,7 +242,7 @@ export async function buildBlacklistRemoveTx(
   hookProgramId: PublicKey,
 ): Promise<Transaction> {
   const configPda = findConfigPda(mint, hookProgramId);
-  const blacklistPda = findBlacklistPda(wallet, hookProgramId);
+  const blacklistPda = findBlacklistPda(mint, wallet, hookProgramId);
   const disc = await anchorDiscriminator("remove_from_blacklist");
   const data = Buffer.concat([disc, wallet.toBuffer()]);
 
@@ -249,15 +263,17 @@ export async function buildBlacklistRemoveTx(
 
 export async function fetchBlacklistStatus(
   connection: Connection,
+  mint: PublicKey,
   wallet: PublicKey,
   hookProgramId: PublicKey,
 ) {
-  const pda = findBlacklistPda(wallet, hookProgramId);
+  const pda = findBlacklistPda(mint, wallet, hookProgramId);
   const info = await connection.getAccountInfo(pda);
 
-  if (!info || info.data.length < 8 + 32 + 1) {
+  // Layout: 8-byte disc | 32-byte wallet | 32-byte mint | 1-byte blocked | 1-byte bump
+  if (!info || info.data.length < 8 + 32 + 32 + 1) {
     return { wallet: wallet.toBase58(), pda: pda.toBase58(), blocked: false };
   }
-  const blocked = info.data[8 + 32] !== 0;
+  const blocked = info.data[8 + 32 + 32] !== 0;
   return { wallet: wallet.toBase58(), pda: pda.toBase58(), blocked };
 }
