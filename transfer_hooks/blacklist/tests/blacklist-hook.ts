@@ -259,7 +259,7 @@ describe("blacklist_hook", () => {
 
   it("blocks transfer to a blacklisted recipient", async () => {
     await (program.methods as any)
-      .addToBlacklist(blocked.publicKey)
+      .addToBlacklist(blocked.publicKey, "Sanctions compliance")
       .accounts({
         admin: admin.publicKey,
         mint: mint.publicKey,
@@ -280,7 +280,7 @@ describe("blacklist_hook", () => {
 
   it("blocks transfer from a blacklisted sender", async () => {
     await (program.methods as any)
-      .addToBlacklist(sender.publicKey)
+      .addToBlacklist(sender.publicKey, "Suspicious activity")
       .accounts({
         admin: admin.publicKey,
         mint: mint.publicKey,
@@ -357,7 +357,7 @@ describe("blacklist_hook", () => {
     let threw = false;
     try {
       await (program.methods as any)
-        .addToBlacklist(recipient.publicKey)
+        .addToBlacklist(recipient.publicKey, "test")
         .accounts({
           admin: sender.publicKey,
           mint: mint.publicKey,
@@ -397,7 +397,7 @@ describe("blacklist_hook", () => {
   it("rejects closing a blocked blacklist entry", async () => {
     // Re-create the entry and block it
     await (program.methods as any)
-      .addToBlacklist(sender.publicKey)
+      .addToBlacklist(sender.publicKey, "Re-blocked for test")
       .accounts({
         admin: admin.publicKey,
         mint: mint.publicKey,
@@ -671,7 +671,7 @@ describe("blacklist_hook", () => {
 
     it("blacklisting sender on mint B blocks transfers on mint B", async () => {
       await (program.methods as any)
-        .addToBlacklist(sender.publicKey)
+        .addToBlacklist(sender.publicKey, "Blocked on mint B")
         .accounts({
           admin: admin.publicKey,
           mint: mintB.publicKey,

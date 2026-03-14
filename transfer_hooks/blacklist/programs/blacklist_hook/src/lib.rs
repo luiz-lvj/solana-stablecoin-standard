@@ -93,7 +93,7 @@ pub mod blacklist_hook {
         Ok(())
     }
 
-    pub fn add_to_blacklist(ctx: Context<SetBlacklist>, wallet: Pubkey) -> Result<()> {
+    pub fn add_to_blacklist(ctx: Context<SetBlacklist>, wallet: Pubkey, reason: String) -> Result<()> {
         require_keys_eq!(
             ctx.accounts.admin.key(),
             ctx.accounts.config.admin,
@@ -115,6 +115,7 @@ pub mod blacklist_hook {
             mint: ctx.accounts.mint.key(),
             wallet,
             authority: ctx.accounts.admin.key(),
+            reason,
             timestamp: Clock::get()?.unix_timestamp,
         });
 
@@ -530,6 +531,7 @@ pub struct WalletBlacklisted {
     pub mint: Pubkey,
     pub wallet: Pubkey,
     pub authority: Pubkey,
+    pub reason: String,
     pub timestamp: i64,
 }
 
@@ -567,23 +569,23 @@ pub struct AdminTransferred {
 #[error_code]
 pub enum BlacklistError {
     #[msg("Unauthorized — caller is not the admin")]
-    Unauthorized,
+    Unauthorized = 6000,
     #[msg("Sender wallet is blacklisted")]
-    SenderBlacklisted,
+    SenderBlacklisted = 6001,
     #[msg("Recipient wallet is blacklisted")]
-    RecipientBlacklisted,
+    RecipientBlacklisted = 6002,
     #[msg("Mint mismatch")]
-    MintMismatch,
+    MintMismatch = 6003,
     #[msg("Invalid token account data")]
-    InvalidTokenAccount,
+    InvalidTokenAccount = 6004,
     #[msg("Invalid blacklist account")]
-    InvalidBlacklistAccount,
+    InvalidBlacklistAccount = 6005,
     #[msg("Invalid extra account meta list")]
-    InvalidExtraAccountMetaList,
+    InvalidExtraAccountMetaList = 6006,
     #[msg("Transfer hook invoked outside of a token transfer")]
-    NotTransferring,
+    NotTransferring = 6007,
     #[msg("No pending admin nomination to accept")]
-    NoPendingAdmin,
+    NoPendingAdmin = 6008,
     #[msg("Cannot close a blacklist entry that is still blocked")]
-    CannotCloseBlockedEntry,
+    CannotCloseBlockedEntry = 6009,
 }

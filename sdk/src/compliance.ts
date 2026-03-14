@@ -125,7 +125,7 @@ export class Compliance {
 
   // ─── Blacklist management ──────────────────────────────────────────────────
 
-  async blacklistAdd(wallet: PublicKey, admin: Keypair): Promise<string> {
+  async blacklistAdd(wallet: PublicKey, admin: Keypair, reason = ""): Promise<string> {
     const [configPda] = getConfigAddress(this.mint, this.hookProgramId);
     const [blacklistPda] = getBlacklistAddress(
       this.mint,
@@ -133,9 +133,15 @@ export class Compliance {
       this.hookProgramId,
     );
 
+    const reasonBytes = Buffer.from(reason, "utf8");
+    const reasonLen = Buffer.alloc(4);
+    reasonLen.writeUInt32LE(reasonBytes.length);
+
     const data = Buffer.concat([
       anchorDiscriminator("add_to_blacklist"),
       wallet.toBuffer(),
+      reasonLen,
+      reasonBytes,
     ]);
 
     const ix = new TransactionInstruction({

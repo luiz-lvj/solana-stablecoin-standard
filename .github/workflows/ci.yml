@@ -14,7 +14,7 @@ env:
 jobs:
   # ── SDK ────────────────────────────────────────────────────────
   sdk:
-    name: SDK — build & typecheck
+    name: SDK — build & test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,10 +27,12 @@ jobs:
         working-directory: sdk
       - run: npm run build
         working-directory: sdk
+      - run: npm test --if-present
+        working-directory: sdk
 
   # ── CLI ────────────────────────────────────────────────────────
   cli:
-    name: CLI — build & typecheck
+    name: CLI — build & test
     needs: sdk
     runs-on: ubuntu-latest
     steps:
@@ -46,10 +48,12 @@ jobs:
         working-directory: cli
       - run: npm run build
         working-directory: cli
+      - run: npm test --if-present
+        working-directory: cli
 
   # ── Backend ────────────────────────────────────────────────────
   backend:
-    name: Backend — build & typecheck
+    name: Backend — build & test
     needs: sdk
     runs-on: ubuntu-latest
     steps:
@@ -65,10 +69,12 @@ jobs:
         working-directory: backend
       - run: npx tsc --noEmit
         working-directory: backend
+      - run: npm test --if-present
+        working-directory: backend
 
-  # ── Anchor programs ────────────────────────────────────────────
+  # ── Anchor programs — build + test ─────────────────────────────
   anchor-blacklist:
-    name: Blacklist Hook — build
+    name: Blacklist Hook — build & test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,9 +84,11 @@ jobs:
           solana-cli-version: ${{ env.SOLANA_VERSION }}
       - run: anchor build
         working-directory: transfer_hooks/blacklist
+      - run: anchor test --skip-build
+        working-directory: transfer_hooks/blacklist
 
   anchor-sss-core:
-    name: SSS-Core — build
+    name: SSS-Core — build & test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,6 +97,8 @@ jobs:
           anchor-version: ${{ env.ANCHOR_VERSION }}
           solana-cli-version: ${{ env.SOLANA_VERSION }}
       - run: anchor build
+        working-directory: programs/sss-core
+      - run: anchor test --skip-build
         working-directory: programs/sss-core
 
   # ── Demo ───────────────────────────────────────────────────────

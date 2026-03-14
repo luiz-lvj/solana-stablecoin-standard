@@ -26,33 +26,35 @@ pub const PRESET_SSS2: u8 = 2;
 #[error_code]
 pub enum SssError {
     #[msg("Operation is paused")]
-    Paused,
+    Paused = 6000,
     #[msg("Unauthorized: missing required role")]
-    Unauthorized,
+    Unauthorized = 6001,
     #[msg("Invalid role identifier")]
-    InvalidRole,
+    InvalidRole = 6002,
     #[msg("Minter quota exceeded")]
-    QuotaExceeded,
+    QuotaExceeded = 6003,
     #[msg("Supply cap would be exceeded")]
-    SupplyCapExceeded,
+    SupplyCapExceeded = 6004,
     #[msg("Math overflow")]
-    MathOverflow,
+    MathOverflow = 6005,
     #[msg("No pending authority nomination")]
-    NoPendingAuthority,
+    NoPendingAuthority = 6006,
     #[msg("Pending authority mismatch")]
-    PendingAuthorityMismatch,
+    PendingAuthorityMismatch = 6007,
     #[msg("Already paused")]
-    AlreadyPaused,
+    AlreadyPaused = 6008,
     #[msg("Not paused")]
-    NotPaused,
+    NotPaused = 6009,
     #[msg("Token account is not frozen")]
-    AccountNotFrozen,
+    AccountNotFrozen = 6010,
     #[msg("Token account is frozen")]
-    AccountFrozen,
+    AccountFrozen = 6011,
     #[msg("Minter is not active")]
-    MinterNotActive,
+    MinterNotActive = 6012,
     #[msg("Invalid preset value")]
-    InvalidPreset,
+    InvalidPreset = 6013,
+    #[msg("Recipient is blacklisted")]
+    RecipientBlacklisted = 6014,
 }
 
 // ── Events ───────────────────────────────────────────────────────────
@@ -142,6 +144,7 @@ pub struct TokensSeized {
     pub from: Pubkey,
     pub treasury: Pubkey,
     pub amount: u64,
+    pub total_seized: u64,
 }
 
 #[event]
@@ -172,9 +175,10 @@ pub struct StablecoinConfig {
     pub paused: bool,
     pub total_minted: u64,
     pub total_burned: u64,
+    pub total_seized: u64,
     pub supply_cap: Option<u64>,
     pub bump: u8,
-    pub _reserved: [u8; 64],
+    pub _reserved: [u8; 56],
 }
 
 #[account]
@@ -184,6 +188,7 @@ pub struct RoleEntry {
     pub authority: Pubkey,
     pub role: u8,
     pub granted_at: i64,
+    pub granted_by: Pubkey,
     pub bump: u8,
     pub _reserved: [u8; 32],
 }
@@ -229,9 +234,10 @@ pub mod sss_core {
         config.paused = false;
         config.total_minted = 0;
         config.total_burned = 0;
+        config.total_seized = 0;
         config.supply_cap = params.supply_cap;
         config.bump = ctx.bumps.config;
-        config._reserved = [0u8; 64];
+        config._reserved = [0u8; 56];
 
         let cpi_program = ctx.accounts.token_program.to_account_info();
 
@@ -291,6 +297,7 @@ pub mod sss_core {
         entry.authority = ctx.accounts.grantee.key();
         entry.role = role;
         entry.granted_at = Clock::get()?.unix_timestamp;
+        entry.granted_by = ctx.accounts.authority.key();
         entry.bump = ctx.bumps.role_entry;
         entry._reserved = [0u8; 32];
 
@@ -344,10 +351,22 @@ pub mod sss_core {
     }
 
     /// Mint tokens. Requires ROLE_MINTER + an active minter-info with quota.
+    /// For SSS-2 (preset=2), pass the recipient's blacklist entry PDA as the
+    /// first remaining account. If the entry exists and is blocked, mint is rejected.
     pub fn mint_tokens(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         let config = &ctx.accounts.config;
         require!(!config.paused, SssError::Paused);
         require!(ctx.accounts.minter_info.is_active, SssError::MinterNotActive);
+
+        if config.preset == PRESET_SSS2 {
+            if let Some(bl_account) = ctx.remaining_accounts.first() {
+                if !bl_account.data_is_empty() && bl_account.data_len() >= 8 + 32 + 32 + 1 {
+                    let data = bl_account.try_borrow_data()?;
+                    let blocked = data[8 + 32 + 32] != 0;
+                    require!(!blocked, SssError::RecipientBlacklisted);
+                }
+            }
+        }
 
         let remaining_quota = ctx.accounts.minter_info.quota
             .checked_sub(ctx.accounts.minter_info.total_minted)
@@ -656,13 +675,26 @@ pub mod sss_core {
             signer_seeds,
         )?;
 
+        // 5. Update accounting
+        let config = &mut ctx.accounts.config;
+        config.total_burned = config.total_burned
+            .checked_add(amount)
+            .ok_or(error!(SssError::MathOverflow))?;
+        config.total_minted = config.total_minted
+            .checked_add(amount)
+            .ok_or(error!(SssError::MathOverflow))?;
+        config.total_seized = config.total_seized
+            .checked_add(amount)
+            .ok_or(error!(SssError::MathOverflow))?;
+
         emit!(TokensSeized {
-            config: ctx.accounts.config.key(),
+            config: config.key(),
             mint: ctx.accounts.mint.key(),
             seizer: ctx.accounts.seizer.key(),
             from: ctx.accounts.target_ata.key(),
             treasury: ctx.accounts.treasury_ata.key(),
             amount,
+            total_seized: config.total_seized,
         });
 
         Ok(())

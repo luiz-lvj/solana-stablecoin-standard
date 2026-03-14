@@ -53,13 +53,14 @@ export async function initializeBlacklistHook(
   console.log("Initialized extra-account-metas PDA:", extraMetasPda.toBase58());
 }
 
-export async function runBlacklistAdd(cfg: SssConfig, walletStr: string): Promise<void> {
+export async function runBlacklistAdd(cfg: SssConfig, walletStr: string, reason = ""): Promise<void> {
   const compliance = loadCompliance(cfg);
   const admin = requireBlacklistAuthority(cfg);
   const wallet = new PublicKey(walletStr);
 
-  const sig = await compliance.blacklistAdd(wallet, admin);
+  const sig = await compliance.blacklistAdd(wallet, admin, reason);
   console.log("Added to blacklist:", walletStr);
+  if (reason) console.log("Reason:", reason);
   console.log("Blacklist PDA:", compliance.getBlacklistPda(wallet).toBase58());
   console.log("Tx:", sig);
 }

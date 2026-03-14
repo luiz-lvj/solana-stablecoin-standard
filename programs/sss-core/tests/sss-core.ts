@@ -154,6 +154,7 @@ describe("sss_core", () => {
       assert.ok(configAccount.supplyCap !== null);
       assert.equal(configAccount.totalMinted.toNumber(), 0);
       assert.equal(configAccount.totalBurned.toNumber(), 0);
+      assert.equal(configAccount.totalSeized.toNumber(), 0);
 
       // Verify mint authority transferred to config PDA
       const mintAccount = await getMint(connection, mint.publicKey, "confirmed", TOKEN_2022_PROGRAM_ID);
@@ -218,6 +219,7 @@ describe("sss_core", () => {
       const entry = await (program.account as any).roleEntry.fetch(rolePda);
       assert.ok(entry.authority.equals(minter.publicKey));
       assert.equal(entry.role, ROLE_MINTER);
+      assert.ok(entry.grantedBy.equals(admin.publicKey));
     });
 
     it("grants burner role", async () => {
@@ -769,6 +771,7 @@ describe("sss_core", () => {
     it("seizes tokens from frozen account to treasury", async () => {
       const [rolePda] = findRolePda(configPda, seizer.publicKey, ROLE_SEIZER, program.programId);
 
+      const configBefore = await (program.account as any).stablecoinConfig.fetch(configPda);
       const victimBefore = await getAccount(connection, victimAta, "confirmed", TOKEN_2022_PROGRAM_ID);
       const seizeAmount = 50_000_000;
 
@@ -797,6 +800,18 @@ describe("sss_core", () => {
 
       // Victim account should be re-frozen after seize
       assert.equal(victimAfter.isFrozen, true);
+
+      // Verify seize accounting: total_burned, total_minted, and total_seized updated
+      const configAfter = await (program.account as any).stablecoinConfig.fetch(configPda);
+      assert.equal(
+        configAfter.totalBurned.toNumber(),
+        configBefore.totalBurned.toNumber() + seizeAmount,
+      );
+      assert.equal(
+        configAfter.totalMinted.toNumber(),
+        configBefore.totalMinted.toNumber() + seizeAmount,
+      );
+      assert.equal(configAfter.totalSeized.toNumber(), seizeAmount);
     });
 
     it("rejects seize on non-frozen account", async () => {

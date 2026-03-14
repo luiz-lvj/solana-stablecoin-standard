@@ -253,11 +253,12 @@ blacklist
   .command("add")
   .description("Add a wallet to the blacklist (blocks future transfers)")
   .argument("<wallet>", "Wallet address to blacklist (base58)")
+  .option("--reason <text>", "Reason for blacklisting (stored in on-chain event)")
   .option("--config <path>", "Path to config TOML")
-  .action(async (wallet: string, opts: { config?: string }) => {
+  .action(async (wallet: string, opts: { reason?: string; config?: string }) => {
     try {
       const cfg = loadConfig(opts.config);
-      await runBlacklistAdd(cfg, wallet);
+      await runBlacklistAdd(cfg, wallet, opts.reason);
     } catch (err) {
       console.error((err as Error).message);
       process.exitCode = 1;

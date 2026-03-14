@@ -82,6 +82,7 @@ export interface SssConfigState {
   paused: boolean;
   totalMinted: bigint;
   totalBurned: bigint;
+  totalSeized: bigint;
   supplyCap: bigint | null;
   bump: number;
 }
@@ -120,6 +121,8 @@ function parseConfigAccount(data: Buffer): SssConfigState {
   offset += 8;
   const totalBurned = data.readBigUInt64LE(offset);
   offset += 8;
+  const totalSeized = data.readBigUInt64LE(offset);
+  offset += 8;
 
   // Option<u64>: 1 byte tag + 8 bytes if Some
   const hasCap = data[offset] === 1;
@@ -137,6 +140,7 @@ function parseConfigAccount(data: Buffer): SssConfigState {
     paused,
     totalMinted,
     totalBurned,
+    totalSeized,
     supplyCap,
     bump,
   };

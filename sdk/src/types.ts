@@ -21,6 +21,8 @@ export interface ExtensionsConfig {
   pausable?: boolean;
   /** Token-2022 Permanent Delegate extension. Defaults to `false`. */
   permanentDelegate?: boolean;
+  /** DefaultAccountState::Frozen — all new ATAs start frozen. Defaults to `false`. */
+  defaultAccountStateFrozen?: boolean;
   /** Transfer-hook extension (e.g. blacklist). Required for SSS-2. */
   transferHook?: boolean | TransferHookConfig;
 }

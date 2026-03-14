@@ -21,6 +21,7 @@ import {
   createInitializeTransferHookInstruction,
   createInitializePermanentDelegateInstruction,
   createInitializePausableConfigInstruction,
+  createInitializeDefaultAccountStateInstruction,
   createSetAuthorityInstruction,
   createMintToInstruction,
   createBurnInstruction,
@@ -34,6 +35,7 @@ import {
   freezeAccount,
   thawAccount,
   AuthorityType,
+  AccountState,
   TokenAccountNotFoundError,
   TokenInvalidAccountOwnerError,
 } from "@solana/spl-token";
@@ -154,6 +156,7 @@ export class SolanaStablecoin {
     const metadataEnabled = ext.metadata !== false;
     const pausableEnabled = ext.pausable === true;
     const permanentDelegateEnabled = ext.permanentDelegate === true;
+    const defaultFrozen = ext.defaultAccountStateFrozen === true;
     const transferHookCfg = resolveTransferHook(ext.transferHook, preset);
     const transferHookEnabled = transferHookCfg !== null;
 
@@ -164,7 +167,7 @@ export class SolanaStablecoin {
     }
 
     const useExtensions =
-      metadataEnabled || transferHookEnabled || pausableEnabled || permanentDelegateEnabled;
+      metadataEnabled || transferHookEnabled || pausableEnabled || permanentDelegateEnabled || defaultFrozen;
     const tokenProgramId = useExtensions
       ? TOKEN_2022_PROGRAM_ID
       : TOKEN_PROGRAM_ID;
@@ -180,6 +183,7 @@ export class SolanaStablecoin {
       if (transferHookEnabled) extensionTypes.push(ExtensionType.TransferHook);
       if (pausableEnabled) extensionTypes.push(ExtensionType.PausableConfig);
       if (permanentDelegateEnabled) extensionTypes.push(ExtensionType.PermanentDelegate);
+      if (defaultFrozen) extensionTypes.push(ExtensionType.DefaultAccountState);
 
       const mintSpace = getMintLen(extensionTypes);
       // tokenMetadataInitialize reallocs the account to store name/symbol/uri,
@@ -237,6 +241,16 @@ export class SolanaStablecoin {
           createInitializePausableConfigInstruction(
             mintPk,
             payer.publicKey,
+            TOKEN_2022_PROGRAM_ID,
+          ),
+        );
+      }
+
+      if (defaultFrozen) {
+        tx.add(
+          createInitializeDefaultAccountStateInstruction(
+            mintPk,
+            AccountState.Frozen,
             TOKEN_2022_PROGRAM_ID,
           ),
         );
