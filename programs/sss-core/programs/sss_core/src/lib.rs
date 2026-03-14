@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use spl_token_2022::instruction::AuthorityType;
+use spl_token_metadata_interface::instruction::update_field;
 
 declare_id!("4ZFzYcNVDSew79hSAVRdtDuMqe9g4vYh7CFvitPSy5DD");
 
@@ -16,7 +17,10 @@ pub const ROLE_FREEZER: u8 = 2;
 pub const ROLE_PAUSER: u8 = 3;
 pub const ROLE_BLACKLISTER: u8 = 4;
 pub const ROLE_SEIZER: u8 = 5;
-pub const ROLE_MAX: u8 = 5;
+pub const ROLE_ATTESTOR: u8 = 6;
+pub const ROLE_MAX: u8 = 6;
+
+pub const RESERVE_SEED: &[u8] = b"reserve";
 
 pub const PRESET_SSS1: u8 = 1;
 pub const PRESET_SSS2: u8 = 2;
@@ -55,6 +59,10 @@ pub enum SssError {
     InvalidPreset = 6013,
     #[msg("Recipient is blacklisted")]
     RecipientBlacklisted = 6014,
+    #[msg("Invalid metadata field")]
+    InvalidMetadataField = 6015,
+    #[msg("Compliance not enabled")]
+    ComplianceNotEnabled = 6016,
 }
 
 // ── Events ───────────────────────────────────────────────────────────
@@ -163,6 +171,42 @@ pub struct TokenAccountThawed {
     pub target: Pubkey,
 }
 
+#[event]
+pub struct ReserveAttested {
+    pub config: Pubkey,
+    pub attestor: Pubkey,
+    pub reserve_amount: u64,
+    pub source: String,
+    pub uri: String,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct MetadataUpdated {
+    pub config: Pubkey,
+    pub mint: Pubkey,
+    pub authority: Pubkey,
+    pub field: String,
+    pub value: String,
+}
+
+#[event]
+pub struct ComplianceToggled {
+    pub config: Pubkey,
+    pub authority: Pubkey,
+    pub enabled: bool,
+}
+
+#[event]
+pub struct TokensBurnedFrom {
+    pub config: Pubkey,
+    pub mint: Pubkey,
+    pub burner: Pubkey,
+    pub target: Pubkey,
+    pub amount: u64,
+    pub total_burned: u64,
+}
+
 // ── State ────────────────────────────────────────────────────────────
 
 #[account]
@@ -173,12 +217,13 @@ pub struct StablecoinConfig {
     pub mint: Pubkey,
     pub preset: u8,
     pub paused: bool,
+    pub compliance_enabled: bool,
     pub total_minted: u64,
     pub total_burned: u64,
     pub total_seized: u64,
     pub supply_cap: Option<u64>,
     pub bump: u8,
-    pub _reserved: [u8; 56],
+    pub _reserved: [u8; 55],
 }
 
 #[account]
@@ -205,12 +250,41 @@ pub struct MinterInfo {
     pub _reserved: [u8; 32],
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct ReserveAttestation {
+    pub config: Pubkey,
+    pub attestor: Pubkey,
+    pub reserve_amount: u64,
+    #[max_len(128)]
+    pub source: String,
+    #[max_len(256)]
+    pub uri: String,
+    pub timestamp: i64,
+    pub bump: u8,
+    pub _reserved: [u8; 32],
+}
+
 // ── Instruction params ───────────────────────────────────────────────
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct InitializeParams {
     pub preset: u8,
     pub supply_cap: Option<u64>,
+    pub compliance_enabled: bool,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct UpdateMetadataParams {
+    pub field: String,
+    pub value: String,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct AttestReserveParams {
+    pub reserve_amount: u64,
+    pub source: String,
+    pub uri: String,
 }
 
 // ── Program ──────────────────────────────────────────────────────────
@@ -232,12 +306,13 @@ pub mod sss_core {
         config.mint = ctx.accounts.mint.key();
         config.preset = params.preset;
         config.paused = false;
+        config.compliance_enabled = params.compliance_enabled;
         config.total_minted = 0;
         config.total_burned = 0;
         config.total_seized = 0;
         config.supply_cap = params.supply_cap;
         config.bump = ctx.bumps.config;
-        config._reserved = [0u8; 56];
+        config._reserved = [0u8; 55];
 
         let cpi_program = ctx.accounts.token_program.to_account_info();
 
@@ -358,7 +433,8 @@ pub mod sss_core {
         require!(!config.paused, SssError::Paused);
         require!(ctx.accounts.minter_info.is_active, SssError::MinterNotActive);
 
-        if config.preset == PRESET_SSS2 {
+        #[cfg(feature = "compliance")]
+        if config.compliance_enabled {
             if let Some(bl_account) = ctx.remaining_accounts.first() {
                 if !bl_account.data_is_empty() && bl_account.data_len() >= 8 + 32 + 32 + 1 {
                     let data = bl_account.try_borrow_data()?;
@@ -368,11 +444,15 @@ pub mod sss_core {
             }
         }
 
-        let remaining_quota = ctx.accounts.minter_info.quota
-            .checked_sub(ctx.accounts.minter_info.total_minted)
-            .ok_or(error!(SssError::MathOverflow))?;
-        require!(amount <= remaining_quota, SssError::QuotaExceeded);
+        #[cfg(feature = "quotas")]
+        {
+            let remaining_quota = ctx.accounts.minter_info.quota
+                .checked_sub(ctx.accounts.minter_info.total_minted)
+                .ok_or(error!(SssError::MathOverflow))?;
+            require!(amount <= remaining_quota, SssError::QuotaExceeded);
+        }
 
+        #[cfg(feature = "supply-cap")]
         if let Some(cap) = config.supply_cap {
             let net_supply = config.total_minted
                 .checked_sub(config.total_burned)
@@ -699,6 +779,168 @@ pub mod sss_core {
 
         Ok(())
     }
+
+    /// Update on-mint metadata (name, symbol, uri). Requires admin authority.
+    /// Uses CPI to Token-2022's tokenMetadataUpdateField.
+    pub fn update_metadata(ctx: Context<UpdateMetadataCtx>, params: UpdateMetadataParams) -> Result<()> {
+        let field = match params.field.as_str() {
+            "name" => spl_token_metadata_interface::state::Field::Name,
+            "symbol" => spl_token_metadata_interface::state::Field::Symbol,
+            "uri" => spl_token_metadata_interface::state::Field::Uri,
+            _ => return err!(SssError::InvalidMetadataField),
+        };
+
+        let mint_key = ctx.accounts.mint.key();
+        let bump = ctx.accounts.config.bump;
+        let seeds: &[&[u8]] = &[CONFIG_SEED, mint_key.as_ref(), &[bump]];
+        let signer_seeds = &[seeds];
+
+        let ix = update_field(
+            ctx.accounts.token_program.key,
+            &ctx.accounts.mint.key(),
+            &ctx.accounts.config.key(),
+            field,
+            params.value.clone(),
+        );
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[
+                ctx.accounts.mint.to_account_info(),
+                ctx.accounts.config.to_account_info(),
+            ],
+            signer_seeds,
+        )?;
+
+        emit!(MetadataUpdated {
+            config: ctx.accounts.config.key(),
+            mint: ctx.accounts.mint.key(),
+            authority: ctx.accounts.authority.key(),
+            field: params.field,
+            value: params.value,
+        });
+
+        Ok(())
+    }
+
+    /// Burn tokens from any account using the config PDA as permanent delegate.
+    /// Requires ROLE_BURNER. Unlike burn_tokens, this can burn from any holder's ATA.
+    pub fn burn_from(ctx: Context<BurnFromCtx>, amount: u64) -> Result<()> {
+        require!(!ctx.accounts.config.paused, SssError::Paused);
+
+        let mint_key = ctx.accounts.mint.key();
+        let bump = ctx.accounts.config.bump;
+        let seeds: &[&[u8]] = &[CONFIG_SEED, mint_key.as_ref(), &[bump]];
+        let signer_seeds = &[seeds];
+
+        let ix = spl_token_2022::instruction::burn(
+            ctx.accounts.token_program.key,
+            &ctx.accounts.target_ata.key(),
+            &ctx.accounts.mint.key(),
+            &ctx.accounts.config.key(),
+            &[],
+            amount,
+        )?;
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[
+                ctx.accounts.target_ata.to_account_info(),
+                ctx.accounts.mint.to_account_info(),
+                ctx.accounts.config.to_account_info(),
+            ],
+            signer_seeds,
+        )?;
+
+        let config = &mut ctx.accounts.config;
+        config.total_burned = config.total_burned
+            .checked_add(amount)
+            .ok_or(error!(SssError::MathOverflow))?;
+
+        emit!(TokensBurnedFrom {
+            config: config.key(),
+            mint: ctx.accounts.mint.key(),
+            burner: ctx.accounts.burner.key(),
+            target: ctx.accounts.target_ata.key(),
+            amount,
+            total_burned: config.total_burned,
+        });
+
+        Ok(())
+    }
+
+    /// Toggle compliance enforcement (blacklist checks). Admin only.
+    pub fn set_compliance(ctx: Context<SetComplianceCtx>, enabled: bool) -> Result<()> {
+        ctx.accounts.config.compliance_enabled = enabled;
+
+        emit!(ComplianceToggled {
+            config: ctx.accounts.config.key(),
+            authority: ctx.accounts.authority.key(),
+            enabled,
+        });
+
+        Ok(())
+    }
+
+    /// Read-only view of config state. Call via simulate for CPI-composable reads.
+    pub fn view_config(ctx: Context<ViewConfigCtx>) -> Result<()> {
+        let c = &ctx.accounts.config;
+        msg!("authority={}", c.authority);
+        msg!("mint={}", c.mint);
+        msg!("preset={}", c.preset);
+        msg!("paused={}", c.paused);
+        msg!("compliance_enabled={}", c.compliance_enabled);
+        msg!("total_minted={}", c.total_minted);
+        msg!("total_burned={}", c.total_burned);
+        msg!("total_seized={}", c.total_seized);
+        msg!("supply_cap={:?}", c.supply_cap);
+        Ok(())
+    }
+
+    /// Read-only view of minter info. Call via simulate for CPI-composable reads.
+    pub fn view_minter(ctx: Context<ViewMinterCtx>) -> Result<()> {
+        let m = &ctx.accounts.minter_info;
+        msg!("minter={}", m.minter);
+        msg!("quota={}", m.quota);
+        msg!("total_minted={}", m.total_minted);
+        msg!("is_active={}", m.is_active);
+        Ok(())
+    }
+
+    /// Record a proof-of-reserve attestation on-chain. Requires ROLE_ATTESTOR.
+    /// This stores the claimed reserve amount, source, and URI for off-chain
+    /// verification. Relevant for GENIUS Act compliance positioning.
+    pub fn attest_reserve(ctx: Context<AttestReserveCtx>, params: AttestReserveParams) -> Result<()> {
+        let attestation = &mut ctx.accounts.attestation;
+        attestation.config = ctx.accounts.config.key();
+        attestation.attestor = ctx.accounts.attestor.key();
+        attestation.reserve_amount = params.reserve_amount;
+        attestation.source = params.source;
+        attestation.uri = params.uri;
+        attestation.timestamp = Clock::get()?.unix_timestamp;
+        attestation.bump = ctx.bumps.attestation;
+        attestation._reserved = [0u8; 32];
+
+        emit!(ReserveAttested {
+            config: ctx.accounts.config.key(),
+            attestor: ctx.accounts.attestor.key(),
+            reserve_amount: attestation.reserve_amount,
+            source: attestation.source.clone(),
+            uri: attestation.uri.clone(),
+            timestamp: attestation.timestamp,
+        });
+
+        Ok(())
+    }
+
+    /// Read-only view of the latest reserve attestation.
+    pub fn view_reserve(ctx: Context<ViewReserveCtx>) -> Result<()> {
+        let a = &ctx.accounts.attestation;
+        msg!("attestor={}", a.attestor);
+        msg!("reserve_amount={}", a.reserve_amount);
+        msg!("source={}", a.source);
+        msg!("uri={}", a.uri);
+        msg!("timestamp={}", a.timestamp);
+        Ok(())
+    }
 }
 
 // ── Account Contexts ─────────────────────────────────────────────────
@@ -985,6 +1227,112 @@ pub struct AcceptAuthorityCtx<'info> {
         bump = config.bump,
     )]
     pub config: Account<'info, StablecoinConfig>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateMetadataCtx<'info> {
+    pub authority: Signer<'info>,
+
+    #[account(
+        has_one = authority @ SssError::Unauthorized,
+        seeds = [CONFIG_SEED, config.mint.as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, StablecoinConfig>,
+
+    #[account(mut, mint::token_program = token_program)]
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct BurnFromCtx<'info> {
+    pub burner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED, mint.key().as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, StablecoinConfig>,
+
+    #[account(
+        seeds = [ROLE_SEED, config.key().as_ref(), burner.key().as_ref(), &[ROLE_BURNER]],
+        bump = role_entry.bump,
+        has_one = config,
+    )]
+    pub role_entry: Account<'info, RoleEntry>,
+
+    #[account(mut, mint::token_program = token_program)]
+    pub mint: InterfaceAccount<'info, Mint>,
+
+    #[account(mut, token::mint = mint, token::token_program = token_program)]
+    pub target_ata: InterfaceAccount<'info, TokenAccount>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct SetComplianceCtx<'info> {
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        has_one = authority @ SssError::Unauthorized,
+        seeds = [CONFIG_SEED, config.mint.as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, StablecoinConfig>,
+}
+
+#[derive(Accounts)]
+pub struct ViewConfigCtx<'info> {
+    #[account(
+        seeds = [CONFIG_SEED, config.mint.as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, StablecoinConfig>,
+}
+
+#[derive(Accounts)]
+pub struct ViewMinterCtx<'info> {
+    pub minter_info: Account<'info, MinterInfo>,
+}
+
+#[derive(Accounts)]
+pub struct AttestReserveCtx<'info> {
+    #[account(mut)]
+    pub attestor: Signer<'info>,
+
+    #[account(
+        seeds = [CONFIG_SEED, config.mint.as_ref()],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, StablecoinConfig>,
+
+    #[account(
+        seeds = [ROLE_SEED, config.key().as_ref(), attestor.key().as_ref(), &[ROLE_ATTESTOR]],
+        bump = role_entry.bump,
+        has_one = config,
+    )]
+    pub role_entry: Account<'info, RoleEntry>,
+
+    #[account(
+        init_if_needed,
+        payer = attestor,
+        space = 8 + ReserveAttestation::INIT_SPACE,
+        seeds = [RESERVE_SEED, config.key().as_ref()],
+        bump,
+    )]
+    pub attestation: Account<'info, ReserveAttestation>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ViewReserveCtx<'info> {
+    pub attestation: Account<'info, ReserveAttestation>,
 }
 
 #[derive(Accounts)]

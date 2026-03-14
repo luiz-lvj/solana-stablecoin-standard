@@ -31,6 +31,9 @@ const ROLE_BURNER = 1;
 const ROLE_FREEZER = 2;
 const ROLE_PAUSER = 3;
 const ROLE_SEIZER = 5;
+const ROLE_ATTESTOR = 6;
+
+const RESERVE_SEED = Buffer.from("reserve");
 
 function findConfigPda(mint: PublicKey, programId: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
@@ -137,7 +140,7 @@ describe("sss_core", () => {
   describe("initialize", () => {
     it("creates config PDA and transfers authorities", async () => {
       await (program.methods as any)
-        .initialize({ preset: 1, supplyCap: new BN(1_000_000_000_000) })
+        .initialize({ preset: 1, supplyCap: new BN(1_000_000_000_000), complianceEnabled: false })
         .accountsStrict({
           authority: admin.publicKey,
           mint: mint.publicKey,
@@ -184,7 +187,7 @@ describe("sss_core", () => {
       const [badConfig] = findConfigPda(badMint.publicKey, program.programId);
       try {
         await (program.methods as any)
-          .initialize({ preset: 99, supplyCap: null })
+          .initialize({ preset: 99, supplyCap: null, complianceEnabled: false })
           .accountsStrict({
             authority: admin.publicKey,
             mint: badMint.publicKey,
@@ -992,6 +995,198 @@ describe("sss_core", () => {
       assert.ok(config.totalBurned.toNumber() > 0);
       const netSupply = config.totalMinted.toNumber() - config.totalBurned.toNumber();
       assert.ok(netSupply > 0);
+    });
+  });
+
+  // ── Burn From (Permanent Delegate) ────────────────────────
+
+  describe("burn_from", () => {
+    let targetAta: PublicKey;
+
+    before(async () => {
+      targetAta = getAssociatedTokenAddressSync(
+        mint.publicKey, victim.publicKey, false, TOKEN_2022_PROGRAM_ID,
+      );
+
+      // Thaw if frozen (seize test leaves it frozen)
+      const acct = await getAccount(connection, targetAta, "confirmed", TOKEN_2022_PROGRAM_ID);
+      if (acct.isFrozen) {
+        const [freezeRolePda] = findRolePda(configPda, freezer.publicKey, ROLE_FREEZER, program.programId);
+        await (program.methods as any)
+          .thawTokenAccount()
+          .accountsStrict({
+            freezer: freezer.publicKey,
+            config: configPda,
+            roleEntry: freezeRolePda,
+            mint: mint.publicKey,
+            targetAta,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+          })
+          .signers([freezer])
+          .rpc({ commitment: "confirmed" });
+      }
+    });
+
+    it("burner burns from victim's account via permanent delegate", async () => {
+      const configBefore = await (program.account as any).stablecoinConfig.fetch(configPda);
+      const burnedBefore = configBefore.totalBurned.toNumber();
+
+      const burnAmount = 100_000;
+      const [rolePda] = findRolePda(configPda, burner.publicKey, ROLE_BURNER, program.programId);
+
+      await (program.methods as any)
+        .burnFrom(new BN(burnAmount))
+        .accountsStrict({
+          burner: burner.publicKey,
+          config: configPda,
+          roleEntry: rolePda,
+          mint: mint.publicKey,
+          targetAta,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .signers([burner])
+        .rpc({ commitment: "confirmed" });
+
+      const configAfter = await (program.account as any).stablecoinConfig.fetch(configPda);
+      assert.equal(
+        configAfter.totalBurned.toNumber(),
+        burnedBefore + burnAmount,
+      );
+    });
+  });
+
+  // ── Set Compliance ────────────────────────────────────────
+
+  describe("set_compliance", () => {
+    it("admin can toggle compliance on and off", async () => {
+      await (program.methods as any)
+        .setCompliance(true)
+        .accountsStrict({
+          authority: admin.publicKey,
+          config: configPda,
+        })
+        .rpc({ commitment: "confirmed" });
+
+      let config = await (program.account as any).stablecoinConfig.fetch(configPda);
+      assert.isTrue(config.complianceEnabled);
+
+      await (program.methods as any)
+        .setCompliance(false)
+        .accountsStrict({
+          authority: admin.publicKey,
+          config: configPda,
+        })
+        .rpc({ commitment: "confirmed" });
+
+      config = await (program.account as any).stablecoinConfig.fetch(configPda);
+      assert.isFalse(config.complianceEnabled);
+    });
+  });
+
+  // ── Reserve Attestation ───────────────────────────────────
+
+  describe("reserve attestation", () => {
+    let attestor: Keypair;
+
+    before(async () => {
+      attestor = Keypair.generate();
+      const sig = await connection.requestAirdrop(
+        attestor.publicKey,
+        2 * anchor.web3.LAMPORTS_PER_SOL,
+      );
+      await connection.confirmTransaction(sig, "confirmed");
+    });
+
+    it("grants attestor role", async () => {
+      const [rolePda] = findRolePda(
+        configPda,
+        attestor.publicKey,
+        ROLE_ATTESTOR,
+        program.programId,
+      );
+
+      await (program.methods as any)
+        .grantRole(ROLE_ATTESTOR)
+        .accountsStrict({
+          authority: admin.publicKey,
+          config: configPda,
+          grantee: attestor.publicKey,
+          roleEntry: rolePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc({ commitment: "confirmed" });
+
+      const entry = await (program.account as any).roleEntry.fetch(rolePda);
+      assert.equal(entry.role, ROLE_ATTESTOR);
+    });
+
+    it("attestor records a reserve attestation", async () => {
+      const [attestationPda] = PublicKey.findProgramAddressSync(
+        [RESERVE_SEED, configPda.toBuffer()],
+        program.programId,
+      );
+      const [rolePda] = findRolePda(
+        configPda,
+        attestor.publicKey,
+        ROLE_ATTESTOR,
+        program.programId,
+      );
+
+      await (program.methods as any)
+        .attestReserve({
+          reserveAmount: new BN(10_000_000_000),
+          source: "Circle USDC reserves audit Q1 2026",
+          uri: "https://example.com/audit-report.pdf",
+        })
+        .accountsStrict({
+          attestor: attestor.publicKey,
+          config: configPda,
+          roleEntry: rolePda,
+          attestation: attestationPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([attestor])
+        .rpc({ commitment: "confirmed" });
+
+      const att = await (program.account as any).reserveAttestation.fetch(attestationPda);
+      assert.equal(att.reserveAmount.toNumber(), 10_000_000_000);
+      assert.equal(att.source, "Circle USDC reserves audit Q1 2026");
+      assert.equal(att.uri, "https://example.com/audit-report.pdf");
+      assert.ok(att.attestor.equals(attestor.publicKey));
+      assert.ok(att.timestamp.toNumber() > 0);
+    });
+
+    it("attestor can update the attestation", async () => {
+      const [attestationPda] = PublicKey.findProgramAddressSync(
+        [RESERVE_SEED, configPda.toBuffer()],
+        program.programId,
+      );
+      const [rolePda] = findRolePda(
+        configPda,
+        attestor.publicKey,
+        ROLE_ATTESTOR,
+        program.programId,
+      );
+
+      await (program.methods as any)
+        .attestReserve({
+          reserveAmount: new BN(15_000_000_000),
+          source: "Updated audit Q2 2026",
+          uri: "https://example.com/audit-q2.pdf",
+        })
+        .accountsStrict({
+          attestor: attestor.publicKey,
+          config: configPda,
+          roleEntry: rolePda,
+          attestation: attestationPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([attestor])
+        .rpc({ commitment: "confirmed" });
+
+      const att = await (program.account as any).reserveAttestation.fetch(attestationPda);
+      assert.equal(att.reserveAmount.toNumber(), 15_000_000_000);
+      assert.equal(att.source, "Updated audit Q2 2026");
     });
   });
 });

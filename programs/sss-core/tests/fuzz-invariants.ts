@@ -185,7 +185,7 @@ describe("sss_core fuzz invariants", () => {
     await sendAndConfirmTransaction(connection, createMintTx, [admin, mint], { commitment: "confirmed" });
 
     await (program.methods as any)
-      .initialize({ preset: 1, supplyCap: new BN(SUPPLY_CAP) })
+      .initialize({ preset: 1, supplyCap: new BN(SUPPLY_CAP), complianceEnabled: false })
       .accountsStrict({
         authority: admin.publicKey,
         mint: mint.publicKey,

@@ -16,10 +16,13 @@ StablecoinConfig PDA                RoleEntry PDA (per wallet+role)
 │ pending_authority    │             │ authority (grantee)   │
 │ mint                 │             │ role: u8              │
 │ preset (1=SSS-1,    │             │ granted_at: i64       │
-│         2=SSS-2)    │             │ bump                  │
+│         2=SSS-2)    │             │ granted_by: Pubkey    │
+│                     │             │ bump                  │
 │ paused               │             │ _reserved: [u8; 32]   │
-│ total_minted         │             └──────────────────────┘
+│ compliance_enabled   │             └──────────────────────┘
+│ total_minted         │
 │ total_burned         │
+│ total_seized         │
 │ supply_cap           │             MinterInfo PDA
 │ bump                 │             ["minter", config, minter]
 │ _reserved: [u8; 64]  │             ┌──────────────────────┐
@@ -31,18 +34,32 @@ StablecoinConfig PDA                RoleEntry PDA (per wallet+role)
                                     │ bump                  │
                                     │ _reserved: [u8; 32]   │
                                     └──────────────────────┘
+
+                                    ReserveAttestation PDA
+                                    ["reserve", config]
+                                    ┌──────────────────────┐
+                                    │ config               │
+                                    │ attestor             │
+                                    │ reserve_amount: u64  │
+                                    │ source (max 128)     │
+                                    │ uri (max 256)        │
+                                    │ timestamp: i64       │
+                                    │ bump                 │
+                                    │ _reserved: [u8; 32]  │
+                                    └──────────────────────┘
 ```
 
 ## Instructions
 
 | Instruction | Signer | Description |
 |---|---|---|
-| `initialize` | Authority | Create config PDA; transfer mint + freeze authority to PDA |
+| `initialize` | Authority | Create config PDA; transfer mint + freeze authority to PDA. Accepts `complianceEnabled` param. |
 | `grant_role` | Authority | Grant a role (PDA per config+grantee+role) |
 | `revoke_role` | Authority | Revoke a role (closes PDA, reclaims rent) |
 | `set_minter_quota` | Authority | Create or update a minter's quota |
-| `mint_tokens` | Minter | Mint tokens (checks role, quota, pause, supply cap) |
+| `mint_tokens` | Minter | Mint tokens (checks role, quota, pause, supply cap). When `compliance_enabled`, checks recipient blacklist via remaining_accounts. |
 | `burn_tokens` | Burner | Burn tokens from own ATA (checks role, pause) |
+| `burn_from` | Burner | Burn from **any** account using permanent delegate (checks ROLE_BURNER, pause) |
 | `pause` | Pauser | Pause all operations |
 | `unpause` | Pauser | Resume all operations |
 | `freeze_token_account` | Freezer | Freeze a token account |
@@ -50,6 +67,12 @@ StablecoinConfig PDA                RoleEntry PDA (per wallet+role)
 | `transfer_authority` | Authority | Nominate a new authority (step 1 of 2) |
 | `accept_authority` | New authority | Accept authority nomination (step 2 of 2) |
 | `seize` | Seizer | Thaw → burn → mint to treasury → re-freeze |
+| `update_metadata` | Authority | Update on-mint metadata (name, symbol, uri) via CPI to Token-2022 |
+| `set_compliance` | Authority | Toggle `compliance_enabled` flag on config |
+| `view_config` | None | Read-only view of config state (call via simulate, no signer required) |
+| `view_minter` | None | Read-only view of minter info (call via simulate, no signer required) |
+| `attest_reserve` | Attestor | Create or update ReserveAttestation PDA with proof-of-reserve data (source, uri, reserve_amount). Uses init_if_needed — repeated attestations update the same PDA. |
+| `view_reserve` | None | Read-only view of the latest attestation (call via simulate, no signer required) |
 
 ## Roles
 
@@ -61,6 +84,7 @@ StablecoinConfig PDA                RoleEntry PDA (per wallet+role)
 | `PAUSER` | 3 | Pause/unpause operations |
 | `BLACKLISTER` | 4 | Manage blacklist (via transfer hook program) |
 | `SEIZER` | 5 | Seize tokens from frozen accounts |
+| `ATTESTOR` | 6 | Record proof-of-reserve attestations |
 
 ## Events
 
@@ -68,12 +92,16 @@ All state-changing instructions emit typed events:
 
 - `ConfigInitialized` — Config PDA created
 - `TokensMinted` / `TokensBurned` — Supply changes
+- `TokensBurnedFrom { config, mint, burner, target, amount, total_burned }` — Burn via permanent delegate
 - `StablecoinPaused` / `StablecoinUnpaused`
 - `RoleGranted` / `RoleRevoked`
 - `MinterQuotaSet`
 - `AuthorityNominated` / `AuthorityTransferred`
 - `TokensSeized`
 - `TokenAccountFrozen` / `TokenAccountThawed`
+- `MetadataUpdated { config, mint, authority, field, value }` — On-mint metadata changed
+- `ComplianceToggled { config, authority, enabled }` — Compliance enforcement toggled
+- `ReserveAttested { config, attestor, reserve_amount, source, uri, timestamp }` — Proof-of-reserve attestation recorded
 
 ## Flow
 
@@ -85,12 +113,84 @@ All state-changing instructions emit typed events:
 5. Minters mint, burners burn, freezers freeze — all role-gated
 ```
 
+## Error Codes (6000+)
+
+| Code | Name | Description |
+|------|------|-------------|
+| 6000 | `Paused` | The stablecoin is paused; operation rejected |
+| 6001 | `Unauthorized` | Signer does not have the required authority |
+| 6002 | `InvalidRole` | The role value is out of range or does not match the operation |
+| 6003 | `QuotaExceeded` | Minter's cumulative minted amount would exceed their quota |
+| 6004 | `SupplyCapExceeded` | Net supply would exceed the on-chain supply cap |
+| 6005 | `MathOverflow` | Arithmetic overflow in supply accounting |
+| 6006 | `NoPendingAuthority` | No pending authority nomination to accept |
+| 6007 | `PendingAuthorityMismatch` | Signer does not match the nominated pending authority |
+| 6008 | `AlreadyPaused` | The stablecoin is already paused |
+| 6009 | `NotPaused` | The stablecoin is not paused; cannot unpause |
+| 6010 | `AccountNotFrozen` | The token account is not frozen; cannot thaw or seize |
+| 6011 | `AccountFrozen` | The token account is already frozen |
+| 6012 | `MinterNotActive` | The minter's MinterInfo has `is_active = false` |
+| 6013 | `InvalidPreset` | The preset value is out of range |
+| 6014 | `RecipientBlacklisted` | The recipient wallet is on the blacklist (SSS-2 mint check) |
+| 6015 | `InvalidMetadataField` | The metadata field name is not one of `name`, `symbol`, or `uri` |
+| 6016 | `ComplianceNotEnabled` | Operation requires `compliance_enabled = true` on the config |
+
+## Feature-Gated Modules
+
+The program uses Cargo features to selectively compile enforcement logic. All features are **enabled by default**.
+
+| Feature | Gate | What it controls |
+|---------|------|-----------------|
+| `compliance` | `#[cfg(feature = "compliance")]` | Blacklist check on `mint_tokens` when `compliance_enabled` is true |
+| `quotas` | `#[cfg(feature = "quotas")]` | Per-minter quota enforcement in `mint_tokens` |
+| `supply-cap` | `#[cfg(feature = "supply-cap")]` | Supply cap enforcement in `mint_tokens` |
+
+To build with only a subset of features:
+
+```bash
+cargo build --no-default-features --features quotas
+cargo build --no-default-features --features "quotas,supply-cap"
+```
+
+This allows issuers to strip enforcement modules they don't need, reducing compute budget usage and program size.
+
 ## Build & Test
 
 ```bash
 cd programs/sss-core
 anchor build
 anchor test
+```
+
+The test suite includes **44 tests** covering initialization, RBAC, mint/burn, freeze/thaw, pause, seize, compliance, metadata, authority transfer, and reserve attestation (grant attestor role, record attestation, update attestation).
+
+## Fuzz / Invariant Tests
+
+The file `tests/fuzz-invariants.ts` contains stateful fuzz-style tests that execute randomized sequences of operations (mint, burn, freeze, thaw, pause, unpause, seize) and verify global invariants after each step.
+
+### Invariants
+
+| ID | Name | Assertion |
+|----|------|-----------|
+| INV-1 | Supply consistency | `total_minted - total_burned == on-chain mint supply` |
+| INV-2 | Seized ≤ burned | `total_seized <= total_burned` |
+| INV-3 | State consistency | On-chain config fields match expected local tracking for `total_minted`, `total_burned`, `total_seized`, and `paused` |
+| INV-4 | Quota bounds | `minter.total_minted <= minter.quota` |
+| INV-5 | Supply cap | `total_minted - total_burned <= supply_cap` (when set) |
+
+### Test Sequences
+
+1. **Mint → burn cycle** — mints multiple amounts, burns, and checks INV-1 through INV-5 after each step.
+2. **Pause blocks mint** — pauses, verifies mint is rejected, unpauses, verifies mint succeeds.
+3. **Freeze → seize accounting** — freezes an account, seizes tokens, verifies `total_seized` tracking.
+4. **Supply cap enforcement** — mints up to near the cap, then verifies overflow is rejected.
+5. **Rapid interleaved operations** — rapid pause/unpause/freeze/thaw to stress state transitions.
+
+Run with:
+
+```bash
+cd programs/sss-core
+anchor test -- --grep "fuzz invariants"
 ```
 
 ## Program ID
