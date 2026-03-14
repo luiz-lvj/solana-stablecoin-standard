@@ -2680,6 +2680,9 @@ dependencies = [
 [[package]]
 name = "sss-common"
 version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+]
 
 [[package]]
 name = "subtle"

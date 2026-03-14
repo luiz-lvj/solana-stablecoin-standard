@@ -1,4 +1,8 @@
-#![no_std]
+use anchor_lang::prelude::*;
+
+// Not a deployed program — ID is only needed to satisfy #[account] macro.
+// Actual owner validation is performed by consumers at runtime.
+declare_id!("11111111111111111111111111111111");
 
 // ── SSS-Core PDA Seeds ────────────────────────────────────────────────
 pub const SSS_CONFIG_SEED: &[u8] = b"sss-config";
@@ -24,3 +28,22 @@ pub const ROLE_MAX: u8 = 6;
 // ── Preset Constants ──────────────────────────────────────────────────
 pub const PRESET_SSS1: u8 = 1;
 pub const PRESET_SSS2: u8 = 2;
+
+// ── Shared Account Structs ────────────────────────────────────────────
+
+/// Blacklist entry for a single wallet on a single mint.
+/// Defined here so both sss-core (for deserialization) and blacklist_hook
+/// (as the owning program) share the same canonical layout.
+#[account]
+#[derive(InitSpace)]
+pub struct BlacklistEntry {
+    pub wallet: Pubkey,
+    pub mint: Pubkey,
+    pub blocked: bool,
+    #[max_len(128)]
+    pub reason: String,
+    pub evidence_hash: [u8; 32],
+    #[max_len(256)]
+    pub evidence_uri: String,
+    pub bump: u8,
+}
